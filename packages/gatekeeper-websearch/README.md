@@ -93,7 +93,8 @@ search, as it can search GitHub or Slack through their gatekeepers.
   retention by agreement
   ([Anthropic](https://privacy.claude.com/en/articles/7996866-how-long-do-you-store-my-organization-s-data),
   [OpenAI](https://developers.openai.com/api/docs/guides/your-data), read 2026-11-23). OpenAI's
-  `store: false`, which `model-search.ts` sends, does not change that.
+  `store: false`, which `model-search.ts` sends, does not change that. A model provider's search
+  that runs with no key stored is another case: see [Known limits](#known-limits).
 - **A model provider can't be made to fetch.** See [Model providers](#model-providers).
 - **Observers.** Each query reports `subresources: []`, and `addObserver` and
   `verifyObserverAccess` admit every collaborator, because search results are public.
@@ -258,6 +259,13 @@ provider makes no outside request: the canary test measured that.
   apply, including data retention, and a search no longer falls back to credits: a revoked or
   empty key fails every search. The deploy wizard can store the key; a key on any other gateway is
   not used. Cloudflare documents the same for a Linkup or Exa key; it has not been run here.
+- **A model provider with no key on the gateway.** Every model provider's search measured here
+  used that provider's key, stored on the gateway. With none stored, AI Gateway's Unified Billing
+  can serve the request with Cloudflare's credentials and bill credits
+  ([Cloudflare](https://developers.cloudflare.com/ai-gateway/features/unified-billing/#credential-precedence),
+  read 2026-11-23). That has not been run here, and the operator's agreement with the provider
+  does not cover such a request. To have AI Gateway refuse it, turn on **Require provider
+  credentials** on the gateway.
 - **Linkup's licensed sources.** For an organization Linkup has authorized, Linkup adds licensed
   publisher content, such as AFP dispatches, to its results
   ([Linkup](https://docs.linkup.so/pages/documentation/platform/premium-sources.md), read
