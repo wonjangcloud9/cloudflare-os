@@ -213,6 +213,12 @@ because each needs a new secret and sends traffic outside AI Gateway.
 - **Provider.** No var and no deploy input: an admin sets it in the admin panel (see
   [Providers](#providers)). The Workshop keeps it in its admin config, so it survives upgrades and
   belongs to one Workshop even where several share this Worker.
+- **Rollback.** A release from before this setting sends every search to Ceramic, whatever
+  provider the admin chose. Its backend also drops the stored provider the next time an admin
+  changes any setting, so the upgrade after it can start on Ceramic again. On a deployment that
+  must not use Ceramic, uninstall this Worker before rolling back, which stops every search at
+  once. After upgrading again, set the provider as soon as this Worker is installed: until then,
+  searches go to Ceramic.
 - **Billing.** Each search spends the deployment account's AI Gateway credits, unless the gateway
   holds a key for the search provider (see Known limits). With a model provider, each search bills
   that provider's key on the gateway for one web search and the model's tokens; billing those to
