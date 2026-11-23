@@ -231,6 +231,10 @@ class TestApprovalQueue extends RpcTarget {
     return new TestGitCache();
   }
 
+  async getAdminSetting(): Promise<string | undefined> {
+    throw new Error("Unexpected admin setting read");
+  }
+
   addObserver(id: string): void {
     this.#activeObservers.add(id);
   }

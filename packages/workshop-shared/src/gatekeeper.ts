@@ -77,6 +77,32 @@ export type VendorDescription = {
    * management UI (see AccountDescription.singleton / .providesUi).
    */
   autoProvisionsAccount?: boolean;
+
+  /**
+   * Deployment-wide settings of this vendor, which a deployment admin edits in the admin panel.
+   * The Workshop stores each value and hands it to this vendor's gatekeepers (see
+   * ApprovalQueue.getAdminSetting). A vendor that declares any must implement
+   * GatekeeperVendor.validateAdminSetting.
+   */
+  adminSettings?: GatekeeperAdminSetting[];
+}
+
+/** A deployment-wide setting of a gatekeeper vendor (see VendorDescription.adminSettings). */
+export type GatekeeperAdminSetting = {
+  /** Names the setting to validateAdminSetting() and ApprovalQueue.getAdminSetting(). */
+  id: string;
+
+  /** Label of the setting's field in the admin panel. */
+  label: string;
+
+  /** What the setting does and the values it takes, shown under the field. Plain text. */
+  help: string;
+
+  /**
+   * What applies while an admin has set no other value. When an admin sets it, the Workshop
+   * stores nothing, so validateAdminSetting() is never asked about it.
+   */
+  defaultValue: string;
 }
 
 /**
@@ -834,6 +860,13 @@ export interface GatekeeperVendor extends WorkerEntrypoint {
    * a vendor without it (a call that throws) as one whose version is unknown.
    */
   versionTag?(): Promise<string | undefined>;
+
+  /**
+   * Throws an Error whose message tells the admin why `value` is not a value the setting `id`
+   * takes. Stores nothing: the Workshop stores a value this accepts. Called only with the `id` of
+   * a setting the vendor declares (VendorDescription.adminSettings), and never with its default.
+   */
+  validateAdminSetting?(id: string, value: string): Promise<void>;
 }
 
 /**
@@ -1642,6 +1675,14 @@ export interface ApprovalQueue extends ObservationAuthorizer {
   bindHook<Hook extends RpcTarget>(
         controller: Fetcher<HookController<Hook>>, callback: RpcStub<Hook>,
         description: HookDescription): Promise<void>;
+
+  /**
+   * What the deployment's admin set for the setting `id` of this gatekeeper's vendor (see
+   * VendorDescription.adminSettings), or undefined if the admin has set nothing, in which case
+   * the setting's default applies. A change can take about a minute to show here. A setting is
+   * configuration, never a secret.
+   */
+  getAdminSetting(id: string): Promise<string | undefined>;
 }
 
 /** What a gadget is about to read from an external service, for `authorizeObservation()`. */

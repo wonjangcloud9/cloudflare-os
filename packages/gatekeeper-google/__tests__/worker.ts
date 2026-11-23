@@ -232,6 +232,10 @@ class TestApprovalQueue extends RpcTarget implements ApprovalQueue {
     throw new Error("Unexpected git cache access");
   }
 
+  async getAdminSetting(): Promise<string | undefined> {
+    throw new Error("Unexpected admin setting read");
+  }
+
   async submitAction(actionId: number, description: ActionDescription): Promise<void> {
     let held = this.holdSubmission;
     if (held) {

@@ -1,4 +1,4 @@
-import { ADMIN_ACCESS_ERROR_CODES, AdminApi, AdminAuditPage, AdminAuditQuery, AdminAuditStats, AdminAuditStatsQuery, AdminFormat, AdminFormatPatch, AdminInspectOptions, AdminModel, AdminResourceVendor, AdminSettingChange, AdminSettingMethod, AdminSettingsView, AdminUserPage, AdminUserQuery, AdminUserView, AdminVia, AdminWorkspaceAccess, AdminWorkspacePage, AdminWorkspaceQuery, AdminWorkspaceView, AdminWriteAction, AdminWriteArgs, AiModelConfig, AiModelProvider, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, DeploymentUpdateStatus, GatewayModel, GatewayModelLevelTest, GatewayModelMode, GatewayModelSettings, GatewayModelTest, MAX_ADMIN_AUDIT_RETENTION_DAYS, MAX_ANNOUNCEMENT_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_SITE_NAME_LENGTH, MAX_UPDATE_CHECK_INTERVAL_MINUTES, MAX_UPDATE_HOURS, ReasoningLevel, SUGGESTED_MODELS, createAdminAccessError, getAdminAccessErrorCode, isAdminWorkspaceAccess, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
+import { ADMIN_ACCESS_ERROR_CODES, AdminApi, AdminAuditPage, AdminAuditQuery, AdminAuditStats, AdminAuditStatsQuery, AdminFormat, AdminFormatPatch, AdminInspectOptions, AdminModel, AdminResourceVendor, AdminSettingChange, AdminSettingMethod, AdminSettingsView, AdminUserPage, AdminUserQuery, AdminUserView, AdminVia, AdminWorkspaceAccess, AdminWorkspacePage, AdminWorkspaceQuery, AdminWorkspaceView, AdminWriteAction, AdminWriteArgs, AiModelConfig, AiModelProvider, AmbientGatekeeperMode, BannerColor, BlueprintPublicInfo, DeploymentUpdateStatus, GatewayModel, GatewayModelLevelTest, GatewayModelMode, GatewayModelSettings, GatewayModelTest, MAX_ADMIN_AUDIT_RETENTION_DAYS, MAX_ANNOUNCEMENT_LENGTH, MAX_GATEKEEPER_SETTING_LENGTH, MAX_INSTANCE_INSTRUCTIONS_LENGTH, MAX_SITE_NAME_LENGTH, MAX_UPDATE_CHECK_INTERVAL_MINUTES, MAX_UPDATE_HOURS, ReasoningLevel, SUGGESTED_MODELS, createAdminAccessError, getAdminAccessErrorCode, isAdminWorkspaceAccess, isAmbientGatekeeperMode, isBannerColor, isHexColor } from '@gadgets/workshop-shared/api';
 import { GatekeeperVendor, getResourceTypeId, findResourceType } from '@gadgets/workshop-shared/gatekeeper';
 import { DurableObject } from 'cloudflare:workers';
 import { RpcTarget, type RpcStub } from 'capnweb';
@@ -6,7 +6,7 @@ import { validateRpc } from 'capnweb-validate';
 import { createWorkshopLogger } from "./observability";
 import { sanitizeBlueprintOutput } from './blueprint-archive.js';
 import { ADMIN_CONFIG_KEY, FEATURED_BLUEPRINTS_KEY, isReservedBlueprintKey, parseBlueprintKvRecord, readBlueprintKvRecord, serializeFeaturedBlueprints } from './storage-schema/blueprints-kv.js';
-import { MAX_AGENT_HINT, MAX_ALLOWED_MODELS, adminConfigSeed, assertPermutation, changesModelSettings, defaultOutputFormatId, diffAdminConfig, effectiveAdminConfig, isAllowedModelName, isUpdateCheckInterval, isUpdateHours, listPromotedFormats, parseRestrictedWebFetchHosts, reorderFormats, sanitizeAddedModel, sanitizeModelSettings, sanitizeOutputOverrides, serializeAdminConfig, isResourceDisabled, unresolvedResourceRestrictions } from './admin-config.js';
+import { MAX_AGENT_HINT, MAX_ALLOWED_MODELS, adminConfigSeed, assertPermutation, changesModelSettings, defaultOutputFormatId, diffAdminConfig, effectiveAdminConfig, gatekeeperSetting, isAllowedModelName, isUpdateCheckInterval, isUpdateHours, listPromotedFormats, parseRestrictedWebFetchHosts, reorderFormats, sanitizeAddedModel, sanitizeModelSettings, sanitizeOutputOverrides, serializeAdminConfig, isResourceDisabled, unresolvedResourceRestrictions, withGatekeeperSetting } from './admin-config.js';
 import { makeAdminSettingsStorage, type AdminConfig, type AdminSettingsStorage, type FormatCuration } from './storage-schema/admin-settings-storage.js';
 import { getModelTokenLimits } from './agent-compaction.js';
 import { AUTO_ROUTER_PROVIDER_NAMES, AiGatewayConfig, GatewayModels, assertGatewayProvider, gatewayModelConfig, gatewayRunConfig, getAiGatewayConfig, isCatalogModel } from './ai-gateway.js';
@@ -1218,6 +1218,28 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
     }
   }
 
+  /**
+   * Set one of a gatekeeper's own settings (VendorDescription.adminSettings), once its vendor has
+   * accepted the value. A value the vendor refuses throws the vendor's reason, and nothing is
+   * recorded or stored. The default is what applies with nothing stored, so setting it stores
+   * nothing and asks the vendor nothing, as setGatekeeperMode() does for the default mode.
+   */
+  async setGatekeeperSetting(
+      vendorId: string, settingId: string, value: string, actor: AdminSettingActor): Promise<void> {
+    vendorId = vendorId.toLowerCase();
+    let vendor = this.vendors.get(vendorId);
+    let setting = vendor && (await vendor.describe()).adminSettings
+        ?.find(declared => declared.id === settingId);
+    // The typeof is always true of an RPC stub: it only narrows the type (see #askVersionTag).
+    if (!vendor || typeof vendor.validateAdminSetting !== "function" || !setting) {
+      throw new Error(`"${vendorId}" has no setting "${settingId}".`);
+    }
+    let stored = value === setting.defaultValue ? undefined : value;
+    if (stored !== undefined) await vendor.validateAdminSetting(settingId, stored);
+    await this.#mutateAdminConfig(actor,
+        config => withGatekeeperSetting(config, vendorId, settingId, stored));
+  }
+
   // Admin view of every bound gatekeeper's resource types, annotated with their enabled state.
   // Unlike the user-facing listGatekeeperVendors, this does NOT hide disabled resources (so admins
   // can re-enable them). `adminUserId` is forwarded to getSupportedResources() so RBAC-gated
@@ -1233,6 +1255,10 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             vendor.describe(),
             vendor.getSupportedResources({ userId: adminUserId }),
           ]);
+          let settings = description.adminSettings?.map(setting => ({
+            ...setting,
+            value: gatekeeperSetting(config, id, setting.id) ?? setting.defaultValue,
+          }));
           if (description.autoProvisionsAccount) {
             // Auto-provisioning ("ambient") gatekeeper: a three-state mode, no resources to toggle.
             let mode = ambientGatekeeperMode(config, id);
@@ -1240,12 +1266,14 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
               vendorId: id,
               displayName: description.displayName,
               logo: description.logo,
+              settings,
               autoProvisions: true,
               ambientMode: mode,
             };
           }
-          if (supportedResources.length === 0 && !config.disabledResources[id]?.length) {
-            // Nothing to toggle for this gatekeeper.
+          if (supportedResources.length === 0 && !config.disabledResources[id]?.length &&
+              !settings?.length) {
+            // Nothing to toggle or set for this gatekeeper.
             return null;
           }
           let unresolved = unresolvedResourceRestrictions(config, id, supportedResources);
@@ -1253,6 +1281,7 @@ export class AdminSettings extends DurableObject<Cloudflare.Env> {
             vendorId: id,
             displayName: description.displayName,
             logo: description.logo,
+            settings,
             autoProvisions: false,
             enabled: !disabledGatekeeperSet.has(id),
             resources: [...supportedResources.map(r => ({
@@ -1392,6 +1421,14 @@ export class AdminApiImpl extends RpcTarget implements AdminApi {
       throw new Error(`Invalid gatekeeper mode: ${mode}`);
     }
     return this.admin.setGatekeeperMode(vendorId, mode, this.#actor("setGatekeeperMode"));
+  }
+
+  async setGatekeeperSetting(vendorId: string, settingId: string, value: string): Promise<void> {
+    if (value.length > MAX_GATEKEEPER_SETTING_LENGTH) {
+      throw new Error(`Setting too long (max ${MAX_GATEKEEPER_SETTING_LENGTH} characters).`);
+    }
+    await this.admin.setGatekeeperSetting(
+        vendorId, settingId, value, this.#actor("setGatekeeperSetting"));
   }
 
   async setAnnouncement(text: string): Promise<void> {

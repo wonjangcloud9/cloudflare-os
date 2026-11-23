@@ -65,7 +65,7 @@ import { GadgetExportsImpl } from "./exports-session";
 import { scanWorkpieceForGrep, type GrepScan } from "./grep";
 import WORKTREE_BINDING_TYPES from "./worktree-binding.txt";
 import EXPORTS_BINDING_TYPES from "./exports-binding.txt";
-import { deploymentOutputForBlueprint, FormatOffer, listFormatOffers, readAdminConfig } from "./admin-config";
+import { deploymentOutputForBlueprint, FormatOffer, gatekeeperSetting, listFormatOffers, readAdminConfig } from "./admin-config";
 import {
   adminCommitLogDepth, adminWorkspaceWritesEnabled, assertAdminViewLive, cutAdminAuditText, redactAdminAuditArgs, validateAdminAccessReason, withholdActionContent,
   withholdBlueprintContent, withholdChatContent, withholdCommitContent, withholdCreationContent,
@@ -15529,6 +15529,12 @@ class ApprovalQueueImpl extends RpcTarget implements ApprovalQueue {
 
   async getGitCache(): Promise<GitCache> {
     return new GitCacheImpl(this.impl.gitCache, this.gatekeeperId);
+  }
+
+  async getAdminSetting(id: string): Promise<string | undefined> {
+    let vendorId = gatekeeperVendorId(this.impl.storage.gatekeepers.get(this.gatekeeperId));
+    return vendorId === undefined
+        ? undefined : gatekeeperSetting(await readAdminConfig(this.impl.env), vendorId, id);
   }
 
   submitAction(action: number, description: ActionDescription): Promise<void> {

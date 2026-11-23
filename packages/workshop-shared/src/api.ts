@@ -26,7 +26,7 @@
 import { RpcCompatible, RpcStub, RpcTarget } from "capnweb";
 import { AccountDescription, ActionKind, ActionDescription, AgentCatalog, AvatarImage, GatekeeperUiFrame, GatekeeperUserSelection, ObservationDescription, ResourceDescription, ResourceConfiguratorFrame, SupportedResource, VendorDescription, HookDescription } from "./gatekeeper.js";
 import type { BytesRef, CodeChange } from "./code-change.js";
-import type { GitOid } from "./gatekeeper.js";
+import type { GatekeeperAdminSetting, GitOid } from "./gatekeeper.js";
 import type { UiFeatureFlags } from "./feature-flags.js";
 
 export const SERVICE_SALT = new Uint8Array([
@@ -1428,10 +1428,21 @@ export type AdminResourceVendor = {
   vendorId: string;
   displayName: string;
   logo?: AvatarImage;
+  /**
+   * The settings the vendor declares (VendorDescription.adminSettings), each with the value in
+   * effect: what an admin set, or its default. Absent for a vendor that declares none.
+   */
+  settings?: (GatekeeperAdminSetting & { value: string })[];
 } & (
   | { autoProvisions: false; enabled: boolean; resources: AdminResource[] }
   | { autoProvisions: true; ambientMode: AmbientGatekeeperMode }
 );
+
+/**
+ * Maximum length (characters) of a gatekeeper setting's value (AdminApi.setGatekeeperSetting).
+ * Every value is held in the admin config, which is read on each connection and agent call.
+ */
+export const MAX_GATEKEEPER_SETTING_LENGTH = 1000;
 
 /**
  * A third-party service: its vendor id, display metadata, and resource types with connection and
@@ -1914,7 +1925,7 @@ export const ADMIN_SETTING_METHODS = [
   "setUpdateChecksEnabled", "setUpdateCheckIntervalMinutes", "setUpdateMinimumAgeHours",
   "setUpdateNoticeSnoozeHours", "setRestrictedWebFetchHosts", "setRestrictedWebFetchApprovals",
   "setAdminWorkspaceAccess", "setAdminAuditRetentionDays", "setGatewayProviderOrder",
-  "setGatewayModelOrder", "setSnapshotSharingEnabled",
+  "setGatewayModelOrder", "setSnapshotSharingEnabled", "setGatekeeperSetting",
 ] as const satisfies readonly (keyof AdminApi)[];
 
 /** One of ADMIN_SETTING_METHODS. */
@@ -2270,6 +2281,15 @@ export interface AdminApi {
    * it.
    */
   setGatekeeperMode(vendorId: string, mode: AmbientGatekeeperMode): Promise<void>;
+
+  /**
+   * Set one of a gatekeeper's own settings (see AdminResourceVendor.settings). Setting the
+   * default stores nothing, so the gatekeeper's default applies from then on. Throws if `value`
+   * is longer than MAX_GATEKEEPER_SETTING_LENGTH, or, with the gatekeeper's reason, if the
+   * gatekeeper refuses it; the setting then keeps its value. Reaches the gatekeeper within about
+   * a minute, in sessions that are already open too.
+   */
+  setGatekeeperSetting(vendorId: string, settingId: string, value: string): Promise<void>;
 
   /**
    * Set the top-bar notice (centered text in the top navigation bar). Pass "" to clear. Rejects over

@@ -138,6 +138,17 @@ it("records every setting change, before it takes effect", async () => {
   last = await expectRecord(last, "setGatekeeperMode",
       [{ setting: "ambientGatekeeperModes", key: TEST_VENDOR_ID, before: "disabled" }]);
 
+  // A value the gatekeeper refuses is never recorded.
+  await expect(admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", "")).rejects.toThrow();
+  expect(await newestSetting()).toEqual(last);
+  await admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", "bonjour");
+  last = await expectRecord(last, "setGatekeeperSetting",
+      [{ setting: "gatekeeperSettings", key: TEST_VENDOR_ID, after: '{"greeting":"bonjour"}' }]);
+  // Setting the default stores nothing, which leaves the vendor no entry.
+  await admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", "hello");
+  last = await expectRecord(last, "setGatekeeperSetting",
+      [{ setting: "gatekeeperSettings", key: TEST_VENDOR_ID, before: '{"greeting":"bonjour"}' }]);
+
   const png = tinyPng();
   const logo = JSON.stringify({ bytes: 33, sha256: createHash("sha256").update(png).digest("hex") });
   try {

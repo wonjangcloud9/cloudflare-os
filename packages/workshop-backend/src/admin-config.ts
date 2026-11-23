@@ -421,6 +421,14 @@ export function normalizeAdminConfig(p: Partial<AdminConfig>): AdminConfig {
     disabledResourceTypeIds: restrictions(p.disabledResourceTypeIds),
     disabledGatekeepers: strings(p.disabledGatekeepers).map(v => v.toLowerCase()),
     ambientGatekeeperModes,
+    // Object.fromEntries defines own properties: see modelModes.
+    gatekeeperSettings: isPlainObject(p.gatekeeperSettings)
+        ? Object.fromEntries(Object.entries(p.gatekeeperSettings).flatMap(([vendorId, stored]) =>
+            isPlainObject(stored)
+              ? [[vendorId.toLowerCase(), Object.fromEntries(Object.entries(stored)
+                  .filter(([, value]) => typeof value === "string"))]]
+              : []))
+        : {},
     restrictedWebFetchHosts: strings(p.restrictedWebFetchHosts),
     restrictedWebFetchApprovals: p.restrictedWebFetchApprovals === true,
     formats: parseFormats(p.formats),
@@ -467,6 +475,40 @@ export function normalizeAdminConfig(p: Partial<AdminConfig>): AdminConfig {
       ? p.adminAuditRetentionDays
       : DEFAULT_ADMIN_CONFIG.adminAuditRetentionDays,
   };
+}
+
+// The settings stored for the gatekeeper vendor `vendorId`. Object.hasOwn, for the reason
+// ownValue() gives.
+function storedGatekeeperSettings(config: AdminConfig, vendorId: string): Record<string, string> {
+  let { gatekeeperSettings } = config;
+  return Object.hasOwn(gatekeeperSettings, vendorId) ? gatekeeperSettings[vendorId] : {};
+}
+
+/**
+ * What an admin set for the setting `settingId` of the gatekeeper vendor `vendorId`, or undefined
+ * if nothing, in which case the setting's default applies.
+ */
+export function gatekeeperSetting(config: AdminConfig, vendorId: string, settingId: string)
+    : string | undefined {
+  let settings = storedGatekeeperSettings(config, vendorId);
+  return Object.hasOwn(settings, settingId) ? settings[settingId] : undefined;
+}
+
+/**
+ * `config` with `value` stored for the setting `settingId` of the gatekeeper vendor `vendorId`, or
+ * with nothing stored for it if `value` is undefined. A vendor with nothing stored has no entry,
+ * so storing nothing where nothing was stored changes nothing.
+ */
+export function withGatekeeperSetting(
+    config: AdminConfig, vendorId: string, settingId: string, value: string | undefined)
+    : AdminConfig {
+  // Built from entries: Object.fromEntries defines own properties, whatever their names.
+  let settings = Object.entries(storedGatekeeperSettings(config, vendorId))
+      .filter(([id]) => id !== settingId);
+  if (value !== undefined) settings.push([settingId, value]);
+  let vendors = Object.entries(config.gatekeeperSettings).filter(([id]) => id !== vendorId);
+  if (settings.length > 0) vendors.push([vendorId, Object.fromEntries(settings)]);
+  return { ...config, gatekeeperSettings: Object.fromEntries(vendors) };
 }
 
 function isAdminAuditRetention(value: unknown): value is number {
@@ -531,8 +573,8 @@ function diffMap(field: string, before: Record<string, unknown>, after: Record<s
  *     entry alone; then, when the entries both sides hold are in a different relative order, one
  *     change without `key` whose values are the lists of every id, in order;
  *   - a map (an object, not an array: banner, disabledResources, ambientGatekeeperModes,
- *     modelModes, modelOrder, modelSettings): one change per own key, in sorted order, whose
- *     value differs;
+ *     gatekeeperSettings, modelModes, modelOrder, modelSettings): one change per own key, in
+ *     sorted order, whose value differs;
  *   - any other field: one change with the whole value.
  * Presence is tested with Object.hasOwn, so a "__proto__" or "constructor" entry is an ordinary
  * one. Empty when nothing differs.

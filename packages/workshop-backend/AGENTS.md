@@ -80,6 +80,12 @@ them:
   banners/theme, and which gatekeeper connectors/resources are offered (plus the three-state mode for
   auto-provisioning gatekeepers above). Connectors/resources default to enabled and the admin UI
   opts them *out*; auto-provisioning gatekeepers default to *optional*.
+- A gatekeeper may declare settings of its own for the Gatekeepers panel
+  (`VendorDescription.adminSettings`), such as Web Search's provider. `AdminConfig.gatekeeperSettings`
+  stores each value, once the vendor's `validateAdminSetting()` has accepted it, and a gatekeeper
+  session reads its own vendor's with `ApprovalQueue.getAdminSetting()`, from the KV mirror. A
+  setting's default is never stored: setting it removes the stored value. A setting is
+  configuration, never a secret.
 - **Authentication/authorization config (sign-in providers via `AUTH_GATEKEEPERS`, password login
   via `DISABLE_PASSWORD_AUTH`) is deliberately NOT in `AdminConfig`** — it stays env-var driven
   (`auth/config.ts`) so it can't be changed by a compromised admin session.

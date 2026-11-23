@@ -541,7 +541,15 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
       // Accounts are minted on request with no auth flow, which is what keeps these tests about the
       // overseer rather than about somebody's OAuth dance.
       autoProvisionsAccount: true,
+      adminSettings: [{
+        id: "greeting", label: "Greeting", help: "What the test thing says first.",
+        defaultValue: "hello",
+      }],
     };
+  }
+
+  async validateAdminSetting(_id: string, value: string): Promise<void> {
+    if (value === "") throw new Error("A greeting can't be empty.");
   }
 
   /**
@@ -739,6 +747,8 @@ export interface TestSession {
   subscribe(name: string, callback: RpcStub<ValueHook>): Promise<void>;
   /** Stores a persistent stub to this connection under `key`, for `/control/call-self-stub`. */
   keepSelfStub(key: string): Promise<void>;
+  /** What the deployment's admin set for the vendor's setting `id`, as the session's queue has it. */
+  readAdminSetting(id: string): Promise<string | undefined>;
 }
 
 /** The hook a gadget binds through `TestSession.watch()`. */
@@ -834,6 +844,10 @@ class TestSessionTarget extends RpcTarget implements TestSession {
 
   async keepSelfStub(key: string): Promise<void> {
     await this.state.keepSelfStub(key, await this.ctx.restore<RpcStub<ConnectionProbe>>({}));
+  }
+
+  readAdminSetting(id: string): Promise<string | undefined> {
+    return this.approvalQueue.getAdminSetting(id);
   }
 
   [Symbol.dispose](): void {

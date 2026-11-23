@@ -1,6 +1,6 @@
 import type { RpcStub } from "capnweb";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import type { AdminApi } from "@gadgets/workshop-shared/api";
+import { MAX_GATEKEEPER_SETTING_LENGTH, type AdminApi } from "@gadgets/workshop-shared/api";
 import type { TestSession } from "../fixtures/gatekeeper-test/src/test-gatekeeper.js";
 import { openAgentSession } from "../src/agent-session.js";
 import {
@@ -113,6 +113,48 @@ it("enforces deployment gatekeeper policy through the admin API", async () => {
           TEST_VENDOR_ID, "https://gadgets-test.example/things/*", true);
     }
   }
+});
+
+it("gives a gatekeeper the setting an admin set for it, in a session that is already open", async () => {
+  const [erinName] = nextUsernames("erin");
+  using erinPublic = connect(harness.url);
+  using erin = await signUp(erinPublic, erinName!);
+  await erin.provisionAmbientAccount(TEST_VENDOR_ID);
+  const account = (await listConnectedAccounts(erin))
+      .find(candidate => candidate.vendorId === TEST_VENDOR_ID);
+  if (account === undefined) throw new Error("Erin's test account was not provisioned");
+  using workspace = await erin.newWorkspace();
+  using bound = await workspace.newGatekeeper(
+      account.id, "https://gadgets-test.example/things/settings");
+  if (bound === null) throw new Error("The test connection was not created");
+  using session = await bound.openSession() as RpcStub<TestSession>;
+  const shown = async () => (await admin.getSettings()).resourceVendors
+      .find(vendor => vendor.vendorId === TEST_VENDOR_ID)?.settings;
+
+  // Until an admin sets it, the admin sees the default and the gatekeeper reads nothing.
+  expect(await shown()).toEqual([expect.objectContaining({ id: "greeting", value: "hello" })]);
+  await expect(session.readAdminSetting("greeting")).resolves.toBeUndefined();
+
+  // A refusal, the gatekeeper's or the Workshop's, reaches the admin, and the setting keeps its
+  // value.
+  await expect(admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", ""))
+      .rejects.toThrow("A greeting can't be empty.");
+  await expect(admin.setGatekeeperSetting(TEST_VENDOR_ID, "volume", "11"))
+      .rejects.toThrow('"test" has no setting "volume".');
+  await expect(admin.setGatekeeperSetting(
+      TEST_VENDOR_ID, "greeting", "x".repeat(MAX_GATEKEEPER_SETTING_LENGTH + 1)))
+      .rejects.toThrow();
+  await expect(session.readAdminSetting("greeting")).resolves.toBeUndefined();
+
+  try {
+    await admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", "bonjour");
+    expect(await shown()).toEqual([expect.objectContaining({ id: "greeting", value: "bonjour" })]);
+    await expect(session.readAdminSetting("greeting")).resolves.toBe("bonjour");
+  } finally {
+    await admin.setGatekeeperSetting(TEST_VENDOR_ID, "greeting", "hello");
+  }
+  // Setting the default stores nothing, so the gatekeeper reads nothing again.
+  await expect(session.readAdminSetting("greeting")).resolves.toBeUndefined();
 });
 
 // The harness sets no CLOUDFLARE_OS_DEPLOYMENT, so this is a deployment the deploy flow did not
