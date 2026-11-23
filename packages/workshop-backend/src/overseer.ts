@@ -6443,19 +6443,19 @@ class OverseerImpl implements AgentHooks {
   }
 
   // Prepare a stored chat message for delivery to a client: strip private unread positions,
-  // inline image attachment bytes
-  // (non-image attachments are fetched on demand via getChatAttachmentContent()), strip the
+  // inline image attachment bytes unless `inlineImages` is false (non-image attachments, and
+  // images then, are fetched on demand via getChatAttachmentContent()), strip the
   // retired Yjs payload from pre-conversion "changes" messages -- it is kept on disk as
   // rollback insurance (see overseer-git-migration.ts) but nothing can apply it, so it must not
   // ship as dead weight on the wire (it is not part of the message's API type).
-  hydrateChatMessageForClient(msg: StoredChatMessage): AiChatMessage {
+  hydrateChatMessageForClient(msg: StoredChatMessage, inlineImages = true): AiChatMessage {
     let {visibleThroughSequence: _, ...publicMessage} = msg;
     msg = publicMessage;
     if (msg.type === "changes" && "update" in msg) {
       let {update: _, ...rest} = msg;
       msg = rest;
     }
-    if (msg.type !== "message" || !msg.attachments?.length) return msg;
+    if (msg.type !== "message" || !msg.attachments?.length || !inlineImages) return msg;
     let attachments = msg.attachments.map((a) => {
       if (!isAllowedChatAttachmentImageMimeType(a.mimeType)) {
         return a;
@@ -14186,7 +14186,9 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       if (hasMore) result.pop();
       result.reverse();
       return {
-        messages: result.map((msg) => this.#getChatMessageForClient(msg)),
+        // Never inline image bytes here: up to 200 messages of 4 MiB images each would exceed the
+        // 32 MiB RPC limit. Clients fetch them with getChatAttachmentContent().
+        messages: result.map((msg) => this.#getChatMessageForClient(msg, false)),
         nextBeforeSequence: hasMore ? result[0].sequence : undefined,
       };
     }
@@ -14213,14 +14215,14 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     return msg && this.#getChatMessageForClient(msg);
   }
 
-  #getChatMessageForClient(msg: StoredChatMessage): AiChatMessage {
+  #getChatMessageForClient(msg: StoredChatMessage, inlineImages = true): AiChatMessage {
     if (msg.type === "action") {
       let record = this.impl.storage.actions.get(msg.actionId);
       if (record) {
         msg.actionLog = actionRecordToLog(record);
       }
     }
-    return this.impl.hydrateChatMessageForClient(msg);
+    return this.impl.hydrateChatMessageForClient(msg, inlineImages);
   }
 
   async subscribeToChat(subscriber: RpcStub<AiChatSubscriber>, startAfter?: Date)
@@ -14432,13 +14434,15 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
     }
 
     // Delete the chat's messages and the attachment content referenced by them. Attachment metadata
-    // is canonical in each message's ChatAttachmentRef. Buffer a page at a time: deleting a message
-    // updates the chats' non-unique indexes, which lists storage and so invalidates an open cursor.
+    // is canonical in each message's ChatAttachmentRef. Buffer a page of keys at a time (holding
+    // one message at a time): deleting a message updates the chats' non-unique indexes, which
+    // lists storage and so invalidates an open cursor.
     this.impl.ctx.storage.transactionSync(() => {
-      for (let page; (page = Array.from(this.impl.storage.chats.list(
+      for (let page; (page = Array.from(this.impl.storage.chats.listKeys(
           {prefix: chatKeyPrefix(chatId), limit: CHAT_DELETE_PAGE_SIZE}))).length;) {
-        for (let msg of page) {
-          if (msg.type === "message") {
+        for (let key of page) {
+          let msg = this.impl.storage.chats.get(key);
+          if (msg?.type === "message") {
             for (let attachment of msg.attachments ?? []) {
               let content = this.impl.storage.chatAttachmentContent.get(attachment.id);
               if (content?.state.type === "committed" && content.state.chatId === chatId) {
@@ -14446,7 +14450,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
               }
             }
           }
-          this.impl.storage.chats.deleteRecord(msg);
+          this.impl.storage.chats.delete(key);
         }
       }
     });

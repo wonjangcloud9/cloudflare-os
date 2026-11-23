@@ -5311,8 +5311,10 @@ export interface Overseer extends RpcTarget {
    *
    * With `limit` (an integer from 1 to 200), return at most that many messages, newest first when
    * selecting the page but ascending in the response, independently of compaction boundaries.
-   * Use the response's `nextBeforeSequence` to page backwards. Without `limit`, pages retain the
-   * checkpoint-delimited behavior and include their compaction summary.
+   * Use the response's `nextBeforeSequence` to page backwards. Bounded pages never inline
+   * attachment bytes (`ChatAttachmentRef.content` is absent); fetch them with
+   * `getChatAttachmentContent()`. Without `limit`, pages retain the checkpoint-delimited behavior
+   * and include their compaction summary.
    *
    * Note that if you plan to subscribe to updates, you should initiate the subscription first,
    * before fetching history. Otherwise, you could theoretically miss a message that is sent
@@ -6798,7 +6800,10 @@ export type ChatAttachmentRef = {
    */
   workspacePath?: string;
 
-  /** Inlined bytes for small image attachments. Present only for images. */
+  /**
+   * Inlined bytes for small image attachments. Present only for images, and never in bounded
+   * `getChatHistory()` pages (those with a `limit`); use `getChatAttachmentContent()` instead.
+   */
   content?: Uint8Array;
 };
 
