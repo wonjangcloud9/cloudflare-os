@@ -1,5 +1,5 @@
 // Web Search: an auto-provisioned gatekeeper whose account gives the agent a `WEB_SEARCH` binding
-// that searches the public web with Cloudflare's Web Search API. README.md explains the design.
+// that searches the public web through the deployment's AI Gateway. README.md explains the design.
 
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { skipRpcValidation, validateRpc } from "capnweb-validate";
@@ -19,7 +19,7 @@ import type {
   VendorDescription,
 } from "@gadgets/workshop-shared/gatekeeper";
 import { workerVersionTag } from "@gadgets/workshop-shared/gatekeeper";
-import { search } from "./search.js";
+import { queryGuidance, search } from "./search.js";
 import type { WebSearchResult, WebSearchSession } from "./types.js";
 import TYPES_CODE from "./types.txt";
 
@@ -70,9 +70,9 @@ export class WebSearchGatekeeper
     };
   }
 
-  /** Returns the agent-facing WebSearchSession declarations. */
+  /** Returns the agent-facing WebSearchSession declarations, with the provider's query guidance. */
   async getTypeScriptTypes(): Promise<string> {
-    return TYPES_CODE;
+    return TYPES_CODE + queryGuidance(this.env);
   }
 
   /** Reports that Web Search has no actions. */
@@ -194,7 +194,7 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
       url: "https://developers.cloudflare.com/web-search/",
       logo: WEB_SEARCH_ICON,
       tagline: "Search the public web",
-      description: "Let the agent and gadgets search the public web with Cloudflare's Web Search API.",
+      description: "Let the agent and gadgets search the public web.",
       autoProvisionsAccount: true,
       providesAuth: false,
     };
@@ -223,9 +223,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
     return [];
   }
 
-  /** Returns the agent-facing WebSearchSession declarations. */
+  /** Returns the agent-facing WebSearchSession declarations, with the provider's query guidance. */
   async getTypeScriptTypes(): Promise<string> {
-    return TYPES_CODE;
+    return TYPES_CODE + queryGuidance(this.env);
   }
 }
 

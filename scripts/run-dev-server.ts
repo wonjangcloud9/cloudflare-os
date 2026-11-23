@@ -534,6 +534,8 @@ const PASSTHROUGH_GATEKEEPER_VARS: Record<string, string[]> = {
   // and schedule), and whether SharePoint asks for every site or only those granted to the app
   // (unset, every site).
   "gatekeeper-microsoft": ["MICROSOFT_TENANT_ID", "MICROSOFT_ALLOWED_TENANT_IDS", "MICROSOFT_SHAREPOINT_ACCESS", "MICROSOFT_SHAREPOINT_SITES", "MICROSOFT_OUTLOOK_ACCESS", "MICROSOFT_CALENDAR_ACCESS"],
+  // Where searches go; unset, Ceramic.
+  "gatekeeper-websearch": ["WEB_SEARCH_PROVIDER"],
 };
 
 for (const gk of gatekeepers) {

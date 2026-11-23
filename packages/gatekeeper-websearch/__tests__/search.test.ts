@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ObservationDescription } from "@gadgets/workshop-shared/gatekeeper";
-import { search } from "../src/search.js";
+import { queryGuidance, search } from "../src/search.js";
 
 type WebSearch = Ai["websearch"];
 
@@ -23,14 +23,82 @@ function recorder() {
 
 const refuse = async () => { throw new Error("refused"); };
 
+const noGateway = (): never => { throw new Error("no model request expected"); };
+const noWebSearch: WebSearch = async () => { throw new Error("no Web Search API call expected"); };
+
 // A gateway other than "default", so a test can tell the configured one was used.
-function env(websearch: WebSearch) {
-  return { AI: { websearch }, CF_AI_GATEWAY: "instance-ai" };
+function env(websearch: WebSearch, provider?: string) {
+  return {
+    AI: { websearch, gateway: noGateway },
+    CF_AI_GATEWAY: "instance-ai",
+    ...(provider !== undefined && { WEB_SEARCH_PROVIDER: provider }),
+  };
 }
 
+// A deployment whose provider is a model provider. `answer` answers its one model request.
+function modelProvider(provider: string, answer: () => Response) {
+  const run = vi.fn(async (_request: AIGatewayUniversalRequest) => answer());
+  const gateway = vi.fn((_gatewayId: string) => ({ run }));
+  return {
+    run, gateway,
+    env: {
+      AI: { websearch: noWebSearch, gateway },
+      CF_AI_GATEWAY: "instance-ai",
+      WEB_SEARCH_PROVIDER: provider,
+    },
+  };
+}
+
+const PAGE = { title: "Alarms", description: "Each Durable Object can hold one alarm." };
+const FOUND = "https://developers.cloudflare.com/durable-objects/api/alarms/";
+const INVENTED = "https://evil.example/alarms";
+
+// The blocks of an Anthropic response for a search that returned `urls`.
+function anthropicSearch(...urls: string[]) {
+  return [
+    { type: "server_tool_use", id: "srvtoolu_1", name: "web_search", input: { query: "q" } },
+    {
+      type: "web_search_tool_result",
+      tool_use_id: "srvtoolu_1",
+      content: urls.map(url => ({
+        type: "web_search_result", url, title: "Alarms", page_age: "3 days ago",
+        encrypted_content: "EqgB",
+      })),
+    },
+  ];
+}
+
+function anthropicReport(...urls: string[]) {
+  return {
+    type: "tool_use", id: "toolu_1", name: "report_results",
+    input: { results: urls.map(url => ({ url, ...PAGE })) },
+  };
+}
+
+// The item of an OpenAI response for a search that returned `urls`.
+function openAiSearch(...urls: string[]) {
+  return {
+    type: "web_search_call", id: "ws_1", status: "completed",
+    action: { type: "search", queries: ["q"], sources: urls.map(url => ({ type: "url", url })) },
+  };
+}
+
+function openAiReport(...urls: string[]) {
+  return {
+    type: "function_call", id: "fc_1", call_id: "call_1", name: "report_results",
+    status: "completed",
+    arguments: JSON.stringify({ results: urls.map(url => ({ url, ...PAGE })) }),
+  };
+}
+
+const anthropic = (...content: unknown[]) => () =>
+  Response.json({ type: "message", role: "assistant", stop_reason: "tool_use", content });
+const openAi = (...output: unknown[]) => () =>
+  Response.json({ object: "response", status: "completed", output });
+
 describe("search", () => {
-  it("searches the configured gateway with the pinned provider and keeps only the result fields",
-      async () => {
+  it("searches the configured gateway with Ceramic, or the provider that is set, and keeps " +
+      "only the result fields", async () => {
     const websearch = vi.fn(respond([{
       url: "https://developers.cloudflare.com/workers/",
       title: "Cloudflare Workers",
@@ -49,12 +117,15 @@ describe("search", () => {
       description: "Build serverless applications.",
       lastModifiedDate: "2026-09-30",
     }]);
+
+    await search(env(websearch, "linkup"), "workers docs", recorder().audit);
+    expect(websearch).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "linkup" }));
   });
 
   it("searches the default gateway when none is configured", async () => {
     const websearch = vi.fn(respond([]));
 
-    await search({ AI: { websearch } }, "q", recorder().audit);
+    await search({ AI: { websearch, gateway: noGateway } }, "q", recorder().audit);
 
     expect(websearch).toHaveBeenCalledWith(expect.objectContaining({ gatewayId: "default" }));
   });
@@ -106,5 +177,158 @@ describe("search", () => {
   it("reports a failed search's status without the provider's body", async () => {
     await expect(search(env(insufficientCredits), "q", recorder().audit))
       .rejects.toThrow(/^Web search failed with HTTP 402\.$/);
+  });
+
+  it("refuses a provider setting it does not know, before anything is recorded or sent",
+      async () => {
+    const websearch = vi.fn(respond([]));
+    const { audit, descriptions } = recorder();
+
+    for (const provider of ["bing", "Ceramic", "anthropic", "openai/", "/gpt-6-luna"]) {
+      await expect(search(env(websearch, provider), "q", audit), provider)
+        .rejects.toThrow("WEB_SEARCH_PROVIDER must be");
+    }
+    expect(websearch).not.toHaveBeenCalled();
+    expect(descriptions).toEqual([]);
+  });
+});
+
+describe("search with a model provider", () => {
+  it("asks the Anthropic model to search once, with the tool that only searches", async () => {
+    const model = modelProvider("anthropic/claude-haiku-5-5",
+        anthropic(...anthropicSearch(FOUND), anthropicReport(FOUND)));
+    const { run } = model;
+    const { audit, descriptions } = recorder();
+
+    const results = await search(model.env, "durable objects alarms", audit);
+
+    expect(model.gateway).toHaveBeenCalledWith("instance-ai");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "anthropic",
+      endpoint: "v1/messages",
+      query: expect.objectContaining({
+        model: "claude-haiku-5-5",
+        messages: [{ role: "user", content: "durable objects alarms" }],
+        tools: expect.arrayContaining([
+          { type: "web_search_20250305", name: "web_search", max_uses: 1 },
+        ]),
+      }),
+    }));
+    expect(results).toEqual([{ url: FOUND, ...PAGE }]);
+    expect(descriptions).toHaveLength(1);
+    expect(descriptions[0].description).toContain("anthropic");
+    expect(descriptions[0].description).toContain("claude-haiku-5-5");
+  });
+
+  it("asks the OpenAI model to search once, from OpenAI's cache only", async () => {
+    const model = modelProvider("openai/gpt-6-luna",
+        openAi(openAiSearch(FOUND), openAiReport(FOUND)));
+    const { run } = model;
+
+    const results = await search(model.env, "durable objects alarms", recorder().audit);
+
+    expect(run).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "openai",
+      endpoint: "responses",
+      query: expect.objectContaining({
+        model: "gpt-6-luna",
+        input: "durable objects alarms",
+        max_tool_calls: 1,
+        tools: expect.arrayContaining([{ type: "web_search", external_web_access: false }]),
+      }),
+    }));
+    expect(results).toEqual([{ url: FOUND, ...PAGE }]);
+  });
+
+  it("keeps only results whose URL a search returned", async () => {
+    const responses = {
+      "anthropic/claude-haiku-5-5":
+        anthropic(...anthropicSearch(FOUND), anthropicReport(INVENTED, FOUND)),
+      "openai/gpt-6-luna": openAi(
+        // A page the model opened is one it picked, not one a search returned.
+        { type: "web_search_call", status: "completed", action: { type: "open_page", url: INVENTED } },
+        openAiSearch(FOUND),
+        openAiReport(INVENTED, FOUND)),
+    };
+    for (const [provider, answer] of Object.entries(responses)) {
+      await expect(search(modelProvider(provider, answer).env, "q", recorder().audit), provider)
+        .resolves.toEqual([{ url: FOUND, ...PAGE }]);
+    }
+  });
+
+  it("returns no more than 10 results", async () => {
+    const urls = Array.from({ length: 12 }, (_, i) => `https://example.com/${i}`);
+    const model = modelProvider("anthropic/claude-haiku-5-5",
+        anthropic(...anthropicSearch(...urls), anthropicReport(...urls)));
+
+    const results = await search(model.env, "q", recorder().audit);
+
+    expect(results.map(result => result.url)).toEqual(urls.slice(0, 10));
+  });
+
+  it("returns nothing when a search ran and found nothing", async () => {
+    const responses = {
+      "anthropic/claude-haiku-5-5": anthropic(...anthropicSearch(), anthropicReport()),
+      "openai/gpt-6-luna": openAi(openAiSearch(), openAiReport()),
+    };
+    for (const [provider, answer] of Object.entries(responses)) {
+      await expect(search(modelProvider(provider, answer).env, "q", recorder().audit), provider)
+        .resolves.toEqual([]);
+    }
+  });
+
+  it("fails when no search succeeded, whatever the model reports", async () => {
+    const [searchCall] = anthropicSearch();
+    const responses: [string, () => Response][] = [
+      // The model called the search beside the report, so Anthropic did not run it.
+      ["anthropic/claude-haiku-5-5", anthropic(searchCall, anthropicReport(FOUND))],
+      ["anthropic/claude-haiku-5-5", anthropic(
+        searchCall,
+        {
+          type: "web_search_tool_result", tool_use_id: "srvtoolu_1",
+          content: { type: "web_search_tool_result_error", error_code: "unavailable" },
+        },
+        anthropicReport())],
+      // The cap on tool calls cut the search off after the model opened a page instead.
+      ["openai/gpt-6-luna", openAi(
+        { type: "web_search_call", status: "completed", action: { type: "open_page", url: FOUND } },
+        { ...openAiSearch(FOUND), status: "searching" },
+        openAiReport(FOUND))],
+    ];
+    for (const [provider, answer] of responses) {
+      await expect(search(modelProvider(provider, answer).env, "q", recorder().audit), provider)
+        .rejects.toThrow(/^Web search failed: the provider ran no search\.$/);
+    }
+  });
+
+  it("fails when the model reports no result list", async () => {
+    const model = modelProvider("anthropic/claude-haiku-5-5",
+        anthropic(...anthropicSearch(FOUND), { type: "text", text: "Alarms wake an object." }));
+
+    await expect(search(model.env, "q", recorder().audit))
+      .rejects.toThrow(/^Web search failed: the provider reported no results\.$/);
+  });
+
+  it("fails on a result list cut short, without quoting it in the error or its cause", async () => {
+    const report = openAiReport(FOUND);
+    const model = modelProvider("openai/gpt-6-luna",
+        openAi(openAiSearch(FOUND), { ...report, arguments: report.arguments.slice(0, 40) }));
+
+    const error = await search(model.env, "q", recorder().audit).catch((caught: unknown) => caught);
+
+    expect(error).toEqual(new Error(
+        "Web search failed: the provider's result list was not valid JSON."));
+    expect(error).not.toHaveProperty("cause");
+  });
+});
+
+describe("queryGuidance", () => {
+  it("gives Ceramic's query rules to a Ceramic deployment alone", () => {
+    expect(queryGuidance({})).not.toBe("");
+    expect(queryGuidance({ WEB_SEARCH_PROVIDER: "ceramic" })).toBe(queryGuidance({}));
+    for (const provider of ["linkup", "anthropic/claude-haiku-5-5", "openai/gpt-6-luna"]) {
+      expect(queryGuidance({ WEB_SEARCH_PROVIDER: provider }), provider).toBe("");
+    }
   });
 });
