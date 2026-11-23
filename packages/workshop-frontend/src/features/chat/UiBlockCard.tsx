@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useEffectEvent, useLayoutEffect, useMemo, us
 import { Banner, Text } from '@cloudflare/kumo'
 import { PaperPlaneRightIcon } from '@phosphor-icons/react'
 import { newMessagePortRpcSession, type RpcStub } from 'capnweb'
-import type { InlineHtmlSegment } from '@gadgets/workshop-shared/inline-html-blocks'
+import { literalImageSources, viewFileSources, type InlineHtmlSegment } from '@gadgets/workshop-shared/inline-html-blocks'
 import { useTheme } from '../../ThemeContext'
 import { WorkshopButton } from '../../components/WorkshopControls'
 import { readSnapshotFile, type FileSnapshots } from './inlineFiles'
@@ -59,22 +59,9 @@ export const UiBlockCard = ({
   const [chip, setChip] = useState<Chip | null>(null)
   // Parse the original block, not the frame's mutable DOM or its requests. A download pin
   // elsewhere in the message doesn't grant this view access to that file.
-  const imageSources = useMemo(() => {
-    const template = document.createElement('template')
-    template.innerHTML = block.html
-    const sources = new Set<string>()
-    const collect = (content: DocumentFragment) => {
-      for (const image of content.querySelectorAll('img[src]')) sources.add(image.getAttribute('src')!)
-      // Template contents are separate fragments, which selectors on their parent do not visit.
-      for (const nested of content.querySelectorAll('template')) {
-        if (nested instanceof HTMLTemplateElement) collect(nested.content)
-      }
-    }
-    collect(template.content)
-    return sources
-  }, [block.html])
-  const readCurrentImage = useEffectEvent(async (source: string) => {
-    if (!imageSources.has(source)) throw new Error(`File unavailable: ${source}`)
+  const fileSources = useMemo(() => viewFileSources(block.html, literalImageSources(block.html)), [block.html])
+  const readCurrentFile = useEffectEvent(async (source: string) => {
+    if (!fileSources.has(source)) throw new Error(`File unavailable: ${source}`)
     if (!files) throw new Error('Files are unavailable in this view.')
     return readSnapshotFile(files, source)
   })
@@ -138,7 +125,7 @@ export const UiBlockCard = ({
         onResize: reported => setHeight(clampHeight(reported)),
         onError: setCodeError,
         onImageError: setImageError,
-        readImage: readCurrentImage,
+        readFile: readCurrentFile,
       }))
       loadRef.current = { frame, written: 0, closed: false }
       frame.write(createUiBlockDocumentStart(readUiBlockTheme())).catch(() => {})

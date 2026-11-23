@@ -111,22 +111,43 @@ describe('UiBlockCard', () => {
   const buttonNamed = (name: string) =>
     [...container.querySelectorAll('button')].find(button => button.textContent === name)
 
-  it('provides only this block’s literal images, excluding download-only and other blocks’ pins', async () => {
+  it('provides only the files this block’s own text names, excluding prose-only and other blocks’ pins', async () => {
     const source = 'worktree://SCRATCH/image&more&again.png'
-    const download = 'worktree://OUTPUTS/report.csv', other = 'worktree://OUTPUTS/other.png'
+    // An image in a template, whose source the card decodes too (t&amp;x → t&x).
+    const templated = 'worktree://OUTPUTS/t&x.json'
+    const comment = 'worktree://OUTPUTS/report.csv', script = 'worktree://OUTPUTS/other.png'
+    const data = 'worktree://OUTPUTS/totals.json', prose = 'worktree://OUTPUTS/prose.csv'
+    const elsewhere = 'worktree://OUTPUTS/elsewhere.json'
+    const oids = { [source]: 'a'.repeat(40), [comment]: 'b'.repeat(40), [script]: 'c'.repeat(40),
+      [data]: 'd'.repeat(40), [templated]: '2'.repeat(40), [prose]: 'e'.repeat(40), [elsewhere]: 'f'.repeat(40),
+      'worktree://OUTPUTS/built.json': '1'.repeat(40) }
     const readBlob = vi.fn<FileSnapshots['readBlob']>().mockRejectedValue(new Error('Blob unavailable'))
     await act(async () => root.render(<UiBlockCard
-      block={{ ...BLOCK, html: `<img src="${source.replaceAll('&', '&amp;')}"><!-- <img src="${download}"> -->` +
-        `<script>const example = '<img src="${other}">';</script>` }} scrollRoot={scrollRoot}
-      onHeightChange={onHeightChange} onSendMessage={async () => {}}
-      files={{ oids: { [source]: 'a'.repeat(40), [download]: 'b'.repeat(40), [other]: 'c'.repeat(40) }, readBlob }} />))
-    const host = await handshake(container.querySelector('iframe')!, new FakeFrame())
-    await expect(Promise.resolve(host.readImage(source))).rejects.toThrow('Blob unavailable')
-    expect(readBlob).toHaveBeenCalledWith('a'.repeat(40))
-    await expect(Promise.resolve(host.readImage('worktree://SCRATCH/other.png'))).rejects.toThrow(/File unavailable/)
-    await expect(Promise.resolve(host.readImage(download))).rejects.toThrow(/File unavailable/)
-    await expect(Promise.resolve(host.readImage(other))).rejects.toThrow(/File unavailable/)
-    expect(readBlob).toHaveBeenCalledTimes(1)
+      block={{ ...BLOCK, html: `<img src="${source.replaceAll('&', '&amp;')}"><!-- <img src="${comment}"> -->` +
+        `<template><img src="worktree://OUTPUTS/t&amp;x.json"></template>` +
+        `<script>const example = '<img src="${script}">';\nembeds.json(\`${data}\`);\n` +
+        `embeds.json("worktree://OUTPUTS/" + "built.json"); // ${prose}\n</script>` }} scrollRoot={scrollRoot}
+      onHeightChange={onHeightChange} onSendMessage={async () => {}} files={{ oids, readBlob }} />))
+    const iframe = container.querySelector('iframe')
+    if (iframe === null) throw new Error('The card drew no frame')
+    const host = await handshake(iframe, new FakeFrame())
+    // The decoded <img src>s, and every URL the block's raw text quotes, a comment's and a string's
+    // included: all text the agent wrote into this view.
+    const outcome = async (url: string) =>
+      await Promise.resolve(host.readFile(url)).then(() => 'read', (error: Error) => error.message)
+    for (const url of [source, templated, comment, script, data]) expect(await outcome(url)).toBe('Blob unavailable')
+    expect(readBlob.mock.calls.map(([oid]) => oid)).toEqual(['a', '2', 'b', 'c', 'd'].map(c => c.repeat(40)))
+    // Unquoted in this view, quoted only elsewhere, built in code, or not pinned.
+    for (const url of [prose, elsewhere, 'worktree://OUTPUTS/built.json', 'worktree://SCRATCH/other.png']) {
+      expect(await outcome(url)).toMatch(/^File unavailable/)
+    }
+    expect(readBlob).toHaveBeenCalledTimes(5)
+  })
+
+  it('refuses every read in a message with no pinned files, and still draws the view', async () => {
+    const host = await handshake(await renderCard({ ...BLOCK, html: `<p>Totals</p><script>embeds.json("worktree://OUTPUTS/t.json")</script>` }))
+    await expect(Promise.resolve(host.readFile('worktree://OUTPUTS/t.json'))).rejects.toThrow(/unavailable/)
+    expect(container.querySelector('iframe')).not.toBeNull()
   })
 
   it('clears a recovered image failure without dismissing script errors', async () => {
