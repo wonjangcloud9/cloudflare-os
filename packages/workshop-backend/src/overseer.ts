@@ -12474,8 +12474,13 @@ export class OverseerDurableObject extends DurableObject<Cloudflare.Env> {
       void (async () => {
         try {
           const ownerProfile = await owner.whoami();
+          // Access may have been revoked (or the workspace deleted) during the await; re-check in
+          // the same synchronous step as the reads so a later title never reaches a non-member.
+          let sharing = await this.impl.getSharingManager();
+          let current = sharing.getEffectiveAccess(profileId);
+          if (!current || !this.impl.ownerId || this.impl.storage.deleting.get()) return;
           await clientUser.recordSharedWorkspaceOpen(gadgetId, this.impl.storage.title.get(), ownerProfile,
-              role, notificationBaselines, this.impl.storage.titleRev.get());
+              current.role, notificationBaselines, this.impl.storage.titleRev.get());
         } catch (err) {
           this.impl.logger.warn("failed to record shared gadget open", {
             event: "shared.gadget.open.record.failed", gadgetId, error: err,
@@ -14064,6 +14069,7 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
 
   async listChats({kind, spawnerId, beforeId, limit}: ChatListOptions = {})
       : Promise<AiChatMetadata[]> {
+    validateBeforeId(beforeId);
     if (limit !== undefined && !(Number.isInteger(limit) && limit > 0)) {
       throw new Error("A chat list's limit must be a positive integer.");
     }
@@ -14113,6 +14119,11 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
       throw new TypeError(`Invalid afterSequence: ${afterSequence}`);
     }
     let storage = this.impl.storage;
+    // A deleted chat's connections stay in the action history; they are no longer its artifacts.
+    if (!storage.chatMeta.get(chatId)) {
+      return {artifacts: [], nextAfterSequence: undefined,
+              connections: afterSequence === undefined ? [] : undefined};
+    }
     this.impl.indexChatArtifacts(chatId);
     // The +1 message probes whether there is a page after this one.
     let messages = [...storage.chats.artifactsByChat.get(keyString(chatId), {
@@ -14129,7 +14140,8 @@ class OverseerClientInterface extends RpcTarget implements Overseer {
           artifacts.push({type: "attachment", timestamp: msg.timestamp,
                           attachment: chatAttachmentInfo(ref, msg.sequence)});
         }
-      } else if (msg.type === "changes") {
+      } else if (msg.type === "changes" && !msg.conversionBoundary) {
+        // A migration's boundary message re-records earlier creations; the original lists them.
         let created = [...(msg.createdGadgets ?? []).map(({gadgetId}) => gadgetId),
                        ...(msg.createdWorktrees ?? []).map(({worktreeId}) => worktreeId)];
         for (let id of created) {
