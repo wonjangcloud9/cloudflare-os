@@ -306,11 +306,16 @@ export default function AdminPage() {
     }
   }
 
-  // Rejects with the gatekeeper's refusal, which the field shows.
+  // Rejects with the gatekeeper's refusal, which the field shows. A save changes that one value,
+  // so it is set here: a re-read of the whole view could put back a row an admin changed since.
   const handleGatekeeperSetting = async (vendorId: string, settingId: string, value: string) => {
     if (!admin) return
     await admin.api.setGatekeeperSetting(vendorId, settingId, value)
-    await reloadResources()
+    setResourceVendors((prev) => prev.map((vendor) => (vendor.vendorId !== vendorId ? vendor : {
+      ...vendor,
+      settings: vendor.settings?.map((setting) => (
+        setting.id === settingId ? { ...setting, value } : setting)),
+    })))
   }
 
   const handleSaveAnnouncement = async () => {

@@ -26,6 +26,17 @@ import AdminPage from './AdminPage'
 
 beforeEach(() => vi.clearAllMocks())
 
+// The admin view of a deployment whose gatekeepers are `resourceVendors`.
+const viewOf = (resourceVendors: AdminResourceVendor[]): AdminSettingsView => ({
+  signupsEnabled: true, userSearchEnabled: false, snapshotSharingEnabled: true, siteName: '',
+  instanceInstructions: '',
+  announcement: '', banner: { text: '', color: 'neutral' }, accentColor: '', formats: [],
+  restrictedWebFetchHosts: [], restrictedWebFetchApprovals: false,
+  adminWorkspaceAccess: { effective: 'metadata', chosen: 'metadata', max: 'metadata' },
+  adminAuditRetentionDays: { effective: 30, chosen: 30, min: 30 },
+  resourceVendors,
+})
+
 it.each([
   { outcome: 'succeeds', refreshFails: false },
   { outcome: 'fails', refreshFails: true },
@@ -42,15 +53,7 @@ it.each([
     autoProvisions: false, resources: [...current,
       { urlPattern: retired, title: 'Unavailable resource type', description: 'Old restriction', enabled: false }],
   } satisfies AdminResourceVendor
-  const settings: AdminSettingsView = {
-    signupsEnabled: true, userSearchEnabled: false, snapshotSharingEnabled: true, siteName: '',
-    instanceInstructions: '',
-    announcement: '', banner: { text: '', color: 'neutral' }, accentColor: '', formats: [],
-    restrictedWebFetchHosts: [], restrictedWebFetchApprovals: false,
-    adminWorkspaceAccess: { effective: 'metadata', chosen: 'metadata', max: 'metadata' },
-    adminAuditRetentionDays: { effective: 30, chosen: 30, min: 30 },
-    resourceVendors: [vendor],
-  }
+  const settings = viewOf([vendor])
   const getSettings = vi.fn<AdminApi['getSettings']>().mockResolvedValueOnce(settings).mockResolvedValue({ ...settings,
     resourceVendors: [{ ...vendor, resources: current.map(r => ({ ...r, enabled: true })) }],
   })
@@ -76,6 +79,43 @@ it.each([
         variant: 'error',
     }]] : [])
     expect(getSettings).toHaveBeenCalledTimes(2)
+  } finally {
+    await act(async () => { root.unmount() })
+    container.remove()
+    vi.unstubAllGlobals()
+  }
+})
+
+it('shows a saved gatekeeper setting as saved, whatever a later read of the settings would do', async () => {
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} })
+  const vendor = { vendorId: 'websearch', displayName: 'Web Search', autoProvisions: true,
+    ambientMode: 'optional',
+    settings: [{ id: 'provider', label: 'Search provider', help: 'Where searches go.',
+      defaultValue: 'ceramic', value: 'ceramic' }],
+  } satisfies AdminResourceVendor
+  // A read after the first one would fail, or put back the values the first one held.
+  const getSettings = vi.fn<AdminApi['getSettings']>().mockResolvedValueOnce(viewOf([vendor]))
+    .mockRejectedValue(new Error('Settings unavailable'))
+  const setGatekeeperSetting = vi.fn<AdminApi['setGatekeeperSetting']>(async () => {})
+  getAdminApi.mockResolvedValue({ getSettings, setGatekeeperSetting, getUpdateStatus: async () => null })
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  const form = () => container.querySelector<HTMLInputElement>('input[placeholder="ceramic"]')!.form!
+  try {
+    await act(async () => { root.render(<AdminPage />) })
+    const input = form().querySelector('input')!
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'exa')
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }))
+    })
+    await act(async () => { form().requestSubmit() })
+
+    expect(setGatekeeperSetting).toHaveBeenCalledWith('websearch', 'provider', 'exa')
+    expect(form().querySelector('input')!.value).toBe('exa')
+    expect(form().querySelector('input')!.getAttribute('aria-invalid')).toBe('false')
+    // Saved: there is nothing left to save.
+    expect(form().querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled).toBe(true)
   } finally {
     await act(async () => { root.unmount() })
     container.remove()
