@@ -31,12 +31,14 @@ and reads it, so the data never passes through the answer:
 ```html
 <inline-html>
 <title>Spending by month</title>
+<h3 id="total"></h3>
 <div id="months"></div>
 <script type="module">
-  const months = await embeds.json("worktree://OUTPUTS/spending.json");
+  const { total, months } = await embeds.json("worktree://OUTPUTS/spending.json");
+  document.getElementById("total").textContent = `Total: ${total}`;
   const list = document.getElementById("months");
-  for (const [month, total] of months) {
-    list.appendChild(document.createElement("p")).textContent = `${month}: $${total}`;
+  for (const [month, amount] of months) {
+    list.appendChild(document.createElement("p")).textContent = `${month}: ${amount}`;
   }
 </script>
 </inline-html>
@@ -128,8 +130,8 @@ Acceptance criteria:
   its own URL while the joined one does not. That grants nothing the agent did not write: any URL
   a view can name is text the agent wrote into that view, and prompt injection could plant a
   string literal as easily as a comment, so a tokenizer would be machinery with no security gain.
-  Both ends run the same shared function on the same raw block HTML, never on a DOM parse, so
-  they cannot disagree, and the read check is an exact string match.
+  Data-file URLs come from the same raw-text scan of the same block HTML on both ends, never from
+  a DOM parse, so they cannot disagree, and the read check is an exact string match.
 - **No chat gateway text.** A chat gateway gets the agent's answer as stored, tags and all.
   Nothing calls the gateway yet, and its removal is planned, so a note in place of each view was
   built, then dropped on review on 2026-11-06. That gateway path does not use the parser;
@@ -362,20 +364,25 @@ restricted data. This plan does not change gadget frames.
 - **Naming.** `quotedFileUrls(blockHtml)`, a new export of
   `workshop-shared/src/inline-html-blocks.ts` beside `markdownFileUrls`, returns each
   `worktree://` URL in `blockHtml` that a quote (`"`, `'` or a backtick) opens and the same quote
-  closes, with no quote, backslash, whitespace or `<` between, and no `${`.
+  closes, with no quote, backslash, whitespace, `<` or `&` between, and no `${`. A path with `&`
+  in it is percent-encoded (`%26`), as main's prompt already asks for special characters.
   - **Kernel.** `snapshotChatEmbeds` (`workshop-backend/src/chat-embeds.ts`) adds
     `quotedFileUrls(part.html)` to its `sources` for each block, closed or (while streaming) open.
     The validation, the resolve against the running turn's worktree state and the null for a
     missing file are #1136's, unchanged.
-  - **Frontend.** `UiBlockCard`'s per-view list adds `quotedFileUrls(block.html)` to the
-    `img[src]` set it builds today.
+  - **Frontend and evals.** One shared rule, `viewFileSources(blockHtml, imageSources)`: the
+    view's literal image sources and `quotedFileUrls(blockHtml)`. The image sources come from
+    `literalImageSources(blockHtml)`, also in `inline-html-blocks.ts`, which parses the block in a
+    template, nested templates included, and reads each `<img src>` as `getAttribute` decodes it.
+    It is browser only and self-contained: `UiBlockCard` calls it, and the eval host runs it in its
+    page with `page.evaluate`, so the Workshop and the evals allow the same set.
   - **Images.** #1136's `<img src>` path stays as it is: the kernel reads `src` through
     `HTMLRewriter` and decodes character references, and the frontend reads it from a parsed
-    fragment, as the browser's `getAttribute` does. The raw scan also sees a quoted `src`, so
-    `src="worktree://OUTPUTS/a&amp;b.png"` adds a second pin under the raw spelling, which
-    resolves the path `a&amp;b.png`, almost always to null. It costs one lookup and a key in
-    `embeds`, and grants nothing: the raw spelling is text the view already holds, and the image
-    loader asks for the decoded `src`.
+    fragment, as the browser's `getAttribute` does. The raw scan also sees a quoted `src`. Without
+    a character reference the two read the same string, and the set holds it once. With one, the
+    raw scan stops at the `&`, so it adds no second pin under the raw spelling: the kernel's
+    entity tests still pin each decoded `src` exactly once. Character references stay the image
+    path's to decode.
 - **Streaming.** The kernel pins during streaming on a delta that holds `)`, `]`, `>`, `\r` or
   `\n` (`agent.ts`, `text_delta`), and awaits the pins before it publishes the delta. A quoted URL
   gets its pin with the delta that ends its line, and at the latest with the delta that carries
@@ -452,9 +459,9 @@ restricted data. This plan does not change gadget frames.
   example more than they follow the rules.
 - Data files give the section the saved env arm's structure (measured 2026-11-05): one intro
   sentence and a "Views of data from code" part, no longer than that arm's.
-  - Intro, after "A short answer or an explanation stays plain text.": "A view shows up to 20
-    values written into its code; for more, write them to a file and have the view read it (see
-    "Views of data from code")." This is the one size rule.
+  - Intro, after "A short answer or an explanation stays plain text.": "Write up to 20 values into
+    a view's code; for more, write them to a file (see "Views of data from code")." This is the
+    one size rule, and the part below opens with its condition.
   - The `env` bullet becomes: "A view has no `env` and no network: it shows what you write into
     it and the files it reads. No `fetch()`, and no remote scripts, styles, fonts or images. Draw
     charts with inline SVG or the DOM."
@@ -463,18 +470,21 @@ restricted data. This plan does not change gadget frames.
     one in code" in place of "construct the file references in the markup, not dynamically in a
     script".
   - The part, after the bullets:
-    "## Views of data from code. Read or work out the data with `executeCode`, and write it to a
-    file in a worktree (create one with `createWorktree`, no `commitId`, if the chat has none for
-    generated files). Then, in your next response, read the file in the view, so the data never
-    passes through your answer: never retype it into the view's code. The view reads the file as
-    it was when you wrote the answer, so a view in the same response as the write would not see
-    it: write first, then draw the view. Call the tool; never paste its code into your answer."
-    Then the example `executeCode` call, which reads a Gadget's rows and writes them with
-    `env.OUTPUTS.writeBytes("spending.json", new TextEncoder().encode(JSON.stringify(rows)))`,
-    then "Then, in your answer:" and a view reading
-    `await embeds.json("worktree://OUTPUTS/spending.json")`, and one bullet: "`embeds.json(url)`
-    and `embeds.text(url)` read a whole file, named by a quoted `worktree://` URL written in the
-    view; the view reads no other file."
+    "## Views of data from code. For more than 20 values, read or work out the data with
+    `executeCode`, and write it to a file in a worktree (create one with `createWorktree`, no
+    `commitId`, if the chat has none for generated files). Then, in your next response, read the
+    file in the view, so the data never passes through your answer: never retype it into the
+    view's code. Save the figures your answer states with the rows, so the view shows them too.
+    The view reads the file as it was when you wrote the answer, so a view in the same response as
+    the write would not see it: write first, then draw the view. Call the tool; never paste its
+    code into your answer." Then the example `executeCode` call, which reads a Gadget's rows
+    (`// [["Jan", 96], …]`), works out their total, and writes both with
+    `env.OUTPUTS.writeBytes("spending.json", new TextEncoder().encode(JSON.stringify({ total, months })))`,
+    then "Then, in your answer:" and the view in "Goal", which draws the total above the rows, and
+    one bullet: "`embeds.json(url)` and `embeds.text(url)` read the whole file."
+  - The sentence about the figures, and the total in the example, came after the 2026-11-23
+    benchmark: in 6 of 9 L5 trials the data-files view listed the weekly rows from the file and left
+    the summary figures in the prose answer, against 2 of 9 for the Inline control.
 
 ## Rejected alternatives
 
@@ -600,26 +610,31 @@ The benchmark's harness and arms go on a branch of their own (see "Benchmark").
 - Data files, each test red before its change:
   - `inline-html-blocks.test.ts`: `quotedFileUrls` takes `"…"`, `'…'` and `` `…` `` URLs, a URL
     in a comment and one quoted inside a longer string, and the quoted prefix of a joined string;
-    it skips one with `${`, an unclosed one, one with whitespace or a backslash, and a bare URL.
+    it skips one with `${`, an unclosed or mismatched quote, whitespace, a backslash, `<`, `&`, and
+    a bare URL.
   - `chat-embeds.test.ts`: a block's quoted URL is pinned, in an HTML script, an SVG script, a
-    nested template and an attribute alike; a URL in the prose but not the block is pinned only
-    by the prose's own rules; an unfinished quote while streaming pins nothing; a quoted URL on a
-    last line with no newline is pinned by the final pass; a raw `src` with `&amp;` adds its raw
-    pin beside the decoded one; a binding that is a gadget pins null.
-  - `attachment-worktrees.test.ts` (scripted turns): a file written by `writeFile` in an earlier
-    step of the turn pins its overlay version, and one written by `writeBytes` pins its own OID;
-    `createWorktree` and `executeCode` in one step and the view in the next pins the file; a view
-    in the same step as its write pins null for a new file and the old OID for a rewritten one;
-    after the producing change is discarded, and after it is reverted, `readBlob` still serves the
-    old view's OID.
-  - `UiBlockCard.test.tsx`: the host's `readFile` serves a URL quoted in the view's own text that
-    its message pinned, and refuses one pinned only in the prose or in another view, one not
-    pinned, one not quoted, and one its code built; a message without `embeds` refuses reads and
-    renders.
+    nested template and an attribute alike; a URL quoted in the prose but not the block is not
+    pinned; an unfinished quote while streaming pins nothing; a quoted URL on a last line with no
+    newline is pinned by the final pass. #1136's entity cases, each decoded `src` pinned exactly
+    once, still pass, which the `&` rule keeps true.
+  - `attachment-worktrees.test.ts` (scripted turns): the binding's writes are simulated through
+    `WorktreeTurnAccess.appendChange`, a text change for `writeFile` and a stored blob with a
+    `setBytes` change for `writeBytes`, because workerd refuses the `executeCode` call into the
+    binding in that harness. A text change in an earlier step of the turn pins its overlay
+    version, and a `setBytes` change pins the blob it stored; a view in the same step as its
+    write pins null for a new file and the old version for a rewritten one; a file written in an
+    earlier turn pins before its change is accepted; a binding that is a Gadget pins null.
+  - `UiBlockCard.test.tsx`: the host's `readFile` serves a decoded `<img src>`, in a template
+    too, and a URL quoted in the view's own text, each pinned in its message, and refuses one
+    pinned only in the prose or in another view, one not pinned, one not quoted, and one its code
+    built; a message without `embeds` refuses reads and renders.
   - `uiBlockFrame.browser.test.tsx`: in the real frame, a module script's `embeds.json` and
     `embeds.text` return the file, read at the block's close; a refused read rejects and shows the
     view's error; images still load through `readFile`; a file over 1 MiB arrives whole.
-  - `view-host.test.ts`: the eval host gives a view its pinned file and refuses others.
+  - `view-host.test.ts`: the eval host gives a view the same set as the card, a pinned quoted URL
+    and an entity-bearing `<img src>` in a template, and refuses a built URL and an unpinned one;
+    a view opened without its message's files reads none. `verifier.test.ts`:
+    `EvalVerifier.openView(html, embeds)` reads a pinned file through the session.
   - A browser run on the dev server with a real model on Workers AI: the agent builds the Expense
     Log Gadget, writes monthly totals to a file in an `OUTPUTS` worktree, and draws a view that
     reads it; it rewrites the file and draws a second view, and the first still shows the old

@@ -10,6 +10,64 @@ import { normalizeUri } from "micromark-util-sanitize-uri";
 // Match ReactMarkdown's remark-gfm parser, including links inside footnotes.
 const MARKDOWN_OPTIONS = {extensions: [gfm()], mdastExtensions: [gfmFromMarkdown()]};
 
+// A `worktree://` URL that a quote opens and the same quote closes, with no quote, backslash,
+// whitespace, `<` or `&` inside: character references are left to the `<img src>` path, which
+// decodes them as the browser does.
+const QUOTED_FILE_URL = /(["'`])(worktree:\/\/[^"'`\\\s<&]*)\1/g;
+
+/**
+ * The worktree file URLs a view may read: each `worktree://` URL that appears quoted, in `"`, `'`
+ * or a backtick with no `${`, in `blockHtml`, the raw HTML of one `<inline-html>` block as the
+ * answer holds it. A raw-text scan, not a JavaScript tokenizer, so a URL in a comment or quoted
+ * inside a longer string counts too; every URL it returns is text the agent wrote into the view.
+ * The kernel pins these URLs and the Workshop lets the view read them, both from the same raw
+ * text, so the two agree (see plans/live-views.md, "Data files").
+ */
+export function quotedFileUrls(blockHtml: string): string[] {
+  return [...blockHtml.matchAll(QUOTED_FILE_URL)].flatMap(([, , url]) =>
+      url.includes("${") ? [] : [url]);
+}
+
+// The DOM surface literalImageSources uses. This package has no DOM types, and the kernel, which
+// reads `<img src>` through HTMLRewriter (chat-embeds.ts), never calls it.
+interface FragmentLike { querySelectorAll(selectors: string): Iterable<ElementLike> }
+interface ElementLike { getAttribute(name: string): string | null; readonly content?: FragmentLike }
+declare const document: {
+  createElement(tag: "template"): { innerHTML: string; readonly content: FragmentLike };
+};
+
+/**
+ * Each literal `<img src>` in `blockHtml`, the raw HTML of one `<inline-html>` block, decoded as
+ * the browser's `getAttribute` decodes it, in nested templates too. Browser only. It uses nothing
+ * else from this module, so a host can run it in a page (`page.evaluate`, view-host.ts).
+ */
+export function literalImageSources(blockHtml: string): string[] {
+  const template = document.createElement("template");
+  template.innerHTML = blockHtml;
+  const sources: string[] = [];
+  // Template contents are separate fragments, which selectors on their parent do not visit.
+  const fragments = [template.content];
+  for (let fragment = fragments.pop(); fragment !== undefined; fragment = fragments.pop()) {
+    for (const image of fragment.querySelectorAll("img[src]")) {
+      const source = image.getAttribute("src");
+      if (source !== null) sources.push(source);
+    }
+    for (const nested of fragment.querySelectorAll("template")) {
+      if (nested.content !== undefined) fragments.push(nested.content);
+    }
+  }
+  return sources;
+}
+
+/**
+ * The files a view may read: its literal image sources (`literalImageSources`) and the worktree
+ * URLs its raw text quotes (`quotedFileUrls`). The Workshop's frame host and the eval host both
+ * allow exactly this set, and the kernel pins each part with the same rules.
+ */
+export function viewFileSources(blockHtml: string, imageSources: Iterable<string>): Set<string> {
+  return new Set([...imageSources, ...quotedFileUrls(blockHtml)]);
+}
+
 /** File URLs in links and images, as the Markdown renderer normalizes them; code examples and raw HTML are excluded. */
 export function markdownFileUrls(markdown: string, streaming = false): string[] {
   const root = fromMarkdown(markdown, MARKDOWN_OPTIONS);
