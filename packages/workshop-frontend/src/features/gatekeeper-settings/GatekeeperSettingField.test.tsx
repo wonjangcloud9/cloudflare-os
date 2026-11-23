@@ -96,4 +96,21 @@ describe('GatekeeperSettingField', () => {
     await submit()
     expect(onSave.mock.calls).toEqual([['exa']])
   })
+
+  it('puts the value in effect back on Reset, and keeps focus in the field', async () => {
+    await render(async () => {})
+    await type(input(), 'exa')
+    const reset = container.querySelector<HTMLButtonElement>('button[type="button"]')
+    if (!reset) throw new Error('no Reset button')
+
+    // Reset goes away with the edit it undoes, and focus must not go with it.
+    await act(async () => {
+      reset.focus()
+      reset.click()
+    })
+
+    expect(input().value).toBe('ceramic')
+    expect(container.querySelector('button[type="button"]')).toBeNull()
+    expect(document.activeElement).toBe(input())
+  })
 })

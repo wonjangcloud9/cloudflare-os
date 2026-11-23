@@ -85,7 +85,11 @@ export const GatekeeperSettingField = ({ setting, onSave }: {
             type="button"
             variant="ghost"
             size="sm"
-            onClick={() => edit(null)}
+            // Reset goes away with the edit it undoes, so the field takes its focus first.
+            onClick={() => {
+              field.current?.focus()
+              edit(null)
+            }}
             disabled={saving}
             aria-label={`Reset “${setting.label}”`}
           >
