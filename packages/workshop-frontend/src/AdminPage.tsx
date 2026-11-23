@@ -16,6 +16,7 @@ import { AdminAuditPanel } from './features/admin-audit/AdminAuditPanel'
 import { auditSettingsOf, type AuditSettings } from './features/admin-audit/auditSettings'
 import { latestReads } from './features/deployment-updates/latestReads'
 import { probeRouterTag } from './features/deployment-updates/probeRouterTag'
+import { GatekeeperSettingField } from './features/gatekeeper-settings/GatekeeperSettingField'
 import { RestrictedWebFetchCard } from './features/web-fetch/RestrictedWebFetchCard'
 import { isAdminTab, resolveAdminTab } from './adminTab'
 import { logRpcFailure } from './rpcErrors'
@@ -303,6 +304,13 @@ export default function AdminPage() {
         return next
       })
     }
+  }
+
+  // Rejects with the gatekeeper's refusal, which the field shows.
+  const handleGatekeeperSetting = async (vendorId: string, settingId: string, value: string) => {
+    if (!admin) return
+    await admin.api.setGatekeeperSetting(vendorId, settingId, value)
+    await reloadResources()
   }
 
   const handleSaveAnnouncement = async () => {
@@ -1021,6 +1029,13 @@ export default function AdminPage() {
           <div className="space-y-6">
             {resourceVendors.map((vendor) => {
               const gkKey = `gk\u0000${vendor.vendorId}`
+              const settings = vendor.settings?.map((setting) => (
+                <GatekeeperSettingField
+                  key={setting.id}
+                  setting={setting}
+                  onSave={(value) => handleGatekeeperSetting(vendor.vendorId, setting.id, value)}
+                />
+              ))
 
               // Auto-provisioned ("ambient") gatekeepers use a three-state mode and have no resources.
               if (vendor.autoProvisions) {
@@ -1065,6 +1080,7 @@ export default function AdminPage() {
                         </button>
                       ))}
                     </div>
+                    {settings}
                   </div>
                 )
               }
@@ -1157,6 +1173,7 @@ export default function AdminPage() {
                     {vendor.resources.length} resource{vendor.resources.length === 1 ? '' : 's'} hidden while disabled.
                   </p>
                 )}
+                {settings}
               </div>
             )})}
           </div>
