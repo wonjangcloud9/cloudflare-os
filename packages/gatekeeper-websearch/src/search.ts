@@ -44,7 +44,8 @@ const RESPONSE_SCHEMA = z.object({ items: z.array(RESULT_SCHEMA) });
 function parseProvider(setting: string): Provider {
   const api = API_PROVIDER.safeParse(setting);
   if (api.success) return { api: api.data };
-  const [, vendorName, model] = /^([^/]+)\/(.+)$/.exec(setting) ?? [];
+  // A model ID has no space and no slash, so a mistyped setting is refused here, not sent.
+  const [, vendorName, model] = /^([^/]+)\/([^\s/]+)$/.exec(setting) ?? [];
   const vendor = MODEL_PROVIDER.safeParse(vendorName);
   if (vendor.success && model !== undefined) return { vendor: vendor.data, model };
   throw new Error("WEB_SEARCH_PROVIDER must be one of: " + [

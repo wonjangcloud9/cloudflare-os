@@ -82,8 +82,9 @@ it can search GitHub or Slack through their gatekeepers.
   is no fallback chain: each fallback would be one more way out of the platform.
 - **The operator's terms.** A query can carry workspace text, restricted text included. Naming a
   provider accepts that provider's handling of it. Ceramic's zero data retention applies to
-  searches billed to AI Gateway credits, and Linkup has zero data retention too. Exa has none. With
-  an operator's own key, that provider's terms apply. On standard terms Anthropic keeps API inputs
+  searches billed to AI Gateway credits, and Linkup has zero data retention too. Exa has none when
+  billed to credits. With an operator's own key, that provider's terms apply: Exa, for one, offers
+  zero data retention on its Enterprise plan. On standard terms Anthropic keeps API inputs
   and outputs for up to 30 days, and OpenAI keeps abuse-monitoring logs, which can hold prompts,
   for up to 30 days. Both policies list exceptions that keep data longer, and both offer zero data
   retention by agreement
@@ -113,7 +114,7 @@ it can search GitHub or Slack through their gatekeepers.
 |---|---|---|---|
 | unset, or `ceramic` | Cloudflare's Web Search API | $0.25 | When billed to credits |
 | `linkup` | Cloudflare's Web Search API | $5 | Yes |
-| `exa` | Cloudflare's Web Search API | $7 | No |
+| `exa` | Cloudflare's Web Search API | $7 | Not when billed to credits |
 | `anthropic/<model>` | Anthropic's web search tool, run by that model | $10, plus the model's tokens | Only by the operator's agreement with Anthropic |
 | `openai/<model>` | OpenAI's web search tool, run by that model | $10, plus the model's tokens | Only by the operator's agreement with OpenAI |
 

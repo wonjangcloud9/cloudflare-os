@@ -196,7 +196,9 @@ describe("search", () => {
     const websearch = vi.fn(respond([]));
     const { audit, descriptions } = recorder();
 
-    for (const provider of ["bing", "Ceramic", "anthropic", "openai/", "/gpt-6-luna"]) {
+    for (const provider of [
+      "bing", "Ceramic", "anthropic", "openai/", "/gpt-6-luna", "openai/ ", "anthropic//",
+    ]) {
       await expect(search(env(websearch, provider), "q", audit), provider)
         .rejects.toThrow("WEB_SEARCH_PROVIDER must be");
     }
