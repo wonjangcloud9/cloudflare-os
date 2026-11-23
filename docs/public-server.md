@@ -113,9 +113,9 @@ An admin session can turn on any provider the Gateway serves.
 
 The **Web Search** gatekeeper (`packages/gatekeeper-websearch`) spends money outside these
 controls. Each search spends the deployment account's AI Gateway credits, or bills the operator's
-own account with the search provider when the gateway holds that provider's key. If its
-`WEB_SEARCH_PROVIDER` names a model provider, each search is a model request billed to that
-provider's key on the gateway, and the **Models** tab's modes and limits do not apply to it. That
+own account with the search provider when the gateway holds that provider's key. If an admin sets
+its search provider to a model provider, each search is a model request billed to that provider's
+key on the gateway, and the **Models** tab's modes and limits do not apply to it. That
 gateway is the one its Worker's `CF_AI_GATEWAY` names: the instance's gateway when the deploy
 service installs it, `default` otherwise, unless you set it on that Worker. The free daily
 allowance and top-up flow do not apply to it. Every new deploy

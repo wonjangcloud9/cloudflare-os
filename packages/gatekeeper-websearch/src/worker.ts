@@ -19,12 +19,9 @@ import type {
   VendorDescription,
 } from "@gadgets/workshop-shared/gatekeeper";
 import { workerVersionTag } from "@gadgets/workshop-shared/gatekeeper";
-import { queryGuidance, search } from "./search.js";
+import { parseProvider, PROVIDER_SETTING, search } from "./search.js";
 import type { WebSearchResult, WebSearchSession } from "./types.js";
 import TYPES_CODE from "./types.txt";
-
-// The agent-facing declarations: the contract, then the provider's query guidance if it has any.
-const agentTypes = (env: Cloudflare.Env): string => TYPES_CODE + queryGuidance(env);
 
 const WEB_SEARCH_ICON = {
   url:
@@ -46,9 +43,10 @@ class WebSearchSessionImpl extends RpcTarget implements WebSearchSession {
     this.#approvalQueue = approvalQueue;
   }
 
-  /** Searches the web, recording the query first. */
-  search(query: string): Promise<WebSearchResult[]> {
-    return search(this.#env, query,
+  /** Searches the web with the provider the admin set, recording the query first. */
+  async search(query: string): Promise<WebSearchResult[]> {
+    const provider = await this.#approvalQueue.getAdminSetting(PROVIDER_SETTING.id);
+    return search({ AI: this.#env.AI, CF_AI_GATEWAY: this.#env.CF_AI_GATEWAY, provider }, query,
         description => this.#approvalQueue.authorizeObservation(description));
   }
 
@@ -73,9 +71,9 @@ export class WebSearchGatekeeper
     };
   }
 
-  /** Returns the agent-facing declarations for the provider the operator set. */
+  /** Returns the agent-facing WebSearchSession declarations. */
   async getTypeScriptTypes(): Promise<string> {
-    return agentTypes(this.env);
+    return TYPES_CODE;
   }
 
   /** Reports that Web Search has no actions. */
@@ -200,7 +198,13 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
       description: "Let the agent and gadgets search the public web.",
       autoProvisionsAccount: true,
       providesAuth: false,
+      adminSettings: [PROVIDER_SETTING],
     };
+  }
+
+  /** Refuses a search provider `search()` would refuse. */
+  async validateAdminSetting(_id: string, value: string): Promise<void> {
+    parseProvider(value);
   }
 
   /** The version tag of this Worker's running version, for the deployment's admins. */
@@ -226,9 +230,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
     return [];
   }
 
-  /** Returns the agent-facing declarations for the provider the operator set. */
+  /** Returns the agent-facing WebSearchSession declarations. */
   async getTypeScriptTypes(): Promise<string> {
-    return agentTypes(this.env);
+    return TYPES_CODE;
   }
 }
 

@@ -61,8 +61,8 @@
 
   <!-- The provider -->
   <rect x="80" y="536" width="440" height="56" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.5"/>
-  <text x="300" y="559" font-size="14" font-weight="600" fill="#6D28D9" text-anchor="middle">The provider the operator set</text>
-  <text x="300" y="579" font-size="13" fill="#334155" text-anchor="middle">Ceramic, unless WEB_SEARCH_PROVIDER names another</text>
+  <text x="300" y="559" font-size="14" font-weight="600" fill="#6D28D9" text-anchor="middle">The provider an admin chose</text>
+  <text x="300" y="579" font-size="13" fill="#334155" text-anchor="middle">Ceramic, until an admin sets another in /admin</text>
   <line x1="300" y1="592" x2="300" y2="622" stroke="#64748B" stroke-width="1.5" marker-end="url(#arrow)"/>
   <text x="310" y="612" font-size="12" fill="#64748B">Response</text>
 

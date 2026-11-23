@@ -2,9 +2,9 @@
 
 Web Search is an ambient gatekeeper that lets the agent and gadgets search the public web through
 the deployment's AI Gateway. By default a search runs on Cloudflare's
-[Web Search API](https://developers.cloudflare.com/web-search/); whoever deploys the instance can
-name another provider (see [Providers](#providers)). It has no connect flow, no user settings and
-no management UI.
+[Web Search API](https://developers.cloudflare.com/web-search/); a deployment admin can choose
+another provider (see [Providers](#providers)). It has no connect flow, no user settings and no
+management UI.
 
 ## Who gets it
 
@@ -40,23 +40,21 @@ export default async function(self, env) {
 `query` is 1 to 1,024 characters, the API's limits. The caller picks no provider and no result
 count, and gets up to 10 results.
 
-Ceramic, the default provider, matches keywords, not meaning. So a Ceramic deployment's agent also
-gets [`src/ceramic-query-guidance.txt`](src/ceramic-query-guidance.txt), served after the contract.
-It says to send a few specific keywords rather than a question, as
+Ceramic, the default provider, matches keywords, not meaning. So `types.d.ts` tells the agent to
+send a few specific keywords rather than a question, as
 [Ceramic's agent skill](https://docs.ceramic.ai/api/search/agent-skill) advises. In our blind test
 of 36 questions, two graders scored Ceramic's results about 0.4 points higher out of 4 for queries
-written this way than for the queries a model wrote without the guidance. That test ran with the
-text in `search()`'s own doc comment, and has not been rerun since the text moved to follow the
-contract. No other provider's agent gets the guidance: it forbids questions and non-Latin scripts,
-which the other providers take.
+written this way than for the queries a model wrote without the guidance. Every provider's agent
+gets this text (see Known limits).
 
 ## How a search runs
 
-<p align="center"><img src="../../docs/images/web-search-flow.svg" alt="A search passes the gatekeeper's query check and is recorded in the Activity log before it goes through the Workers AI binding and the deployment's AI Gateway to the provider the operator set" width="860"></p>
+<p align="center"><img src="../../docs/images/web-search-flow.svg" alt="A search passes the gatekeeper's check and is recorded in the Activity log before it goes through the Workers AI binding and the deployment's AI Gateway to the provider an admin chose" width="860"></p>
 
-`src/search.ts` does the work:
+The session reads the admin's provider setting from its `ApprovalQueue`. Then `src/search.ts` does
+the work:
 
-1. It refuses a `WEB_SEARCH_PROVIDER` it does not know. Nothing is sent or recorded.
+1. It refuses a provider setting it does not know. Nothing is sent or recorded.
 2. It refuses a query outside 1 to 1,024 characters. Nothing is sent or recorded.
 3. It records the query through the session's `ApprovalQueue`. The query goes in a literal field,
    built with gatekeeper-kit's `buildDescription`, so the record shows exactly what was sent. The
@@ -73,13 +71,18 @@ which the other providers take.
 
 ## Security
 
-A query goes only to the provider the operator set. The agent cannot choose where it goes, as it
-can with a `webFetch` URL, so a workspace that has observed restricted data can still search, as
-it can search GitHub or Slack through their gatekeepers.
+A query goes only to the provider a deployment admin chose. The agent cannot choose where it goes,
+as it can with a `webFetch` URL, so a workspace that has observed restricted data can still
+search, as it can search GitHub or Slack through their gatekeepers.
 
-- **The setting.** `WEB_SEARCH_PROVIDER` is a var on this Worker, not an admin setting. Like the
-  sign-in config, it decides where data goes, so a stolen admin session must not change it. There
-  is no fallback chain: each fallback would be one more way out of the platform.
+- **The setting.** The provider is an admin setting of this gatekeeper
+  (`VendorDescription.adminSettings`), edited under Admin → Gatekeepers → Web Search. The Workshop
+  stores it, records each change in the admin audit log, and hands it to a session through
+  `ApprovalQueue.getAdminSetting()`. The gatekeeper accepts only the values in
+  [Providers](#providers), so an admin can pick among those and can add no host. An admin already
+  names the hosts a restricted workspace may fetch (`restrictedWebFetchHosts`), so this setting
+  gives an admin session no reach it did not have. There is no fallback chain: each fallback
+  would be one more way out of the platform.
 - **The operator's terms.** A query can carry workspace text, restricted text included. Naming a
   provider accepts that provider's handling of it. Ceramic's zero data retention applies to
   searches billed to AI Gateway credits, and Linkup has zero data retention too. Exa has none when
@@ -108,20 +111,23 @@ it can search GitHub or Slack through their gatekeepers.
 
 ## Providers
 
-`WEB_SEARCH_PROVIDER` names where every search goes.
+An admin sets the search provider under Admin → Gatekeepers → Web Search. It names where every
+search goes, in every workspace, open ones included. A change reaches a search within about a
+minute: a session reads the setting from the Workshop's KV copy of the admin settings.
 
-| `WEB_SEARCH_PROVIDER` | A search runs on | Per 1,000 searches | Zero data retention |
+| Search provider | A search runs on | Per 1,000 searches | Zero data retention |
 |---|---|---|---|
-| unset, or `ceramic` | Cloudflare's Web Search API | $0.25 | When billed to credits |
+| `ceramic`, the default | Cloudflare's Web Search API | $0.25 | When billed to credits |
 | `linkup` | Cloudflare's Web Search API | $5 | Yes |
 | `exa` | Cloudflare's Web Search API | $7 | Not when billed to credits |
 | `anthropic/<model>` | Anthropic's web search tool, run by that model | $10, plus the model's tokens | Only by the operator's agreement with Anthropic |
 | `openai/<model>` | OpenAI's web search tool, run by that model | $10, plus the model's tokens | Only by the operator's agreement with OpenAI |
 
-`<model>` is the provider's own model ID, such as `claude-haiku-5-5` or `gpt-6-luna`. It is part of
-the setting, with no default, because model IDs retire and an operator may have only some models
-approved. Prices: Cloudflare's Web Search API docs, October 2026, and Anthropic's and OpenAI's
-pricing pages, read 2026-11-23.
+`<model>` is the provider's own model ID, such as `claude-haiku-5-5` or `gpt-6-luna`: letters,
+digits and `.`, `_`, `:`, `-`, 100 characters at most, because each search's record shows it. It
+is part of the setting, with no default, because model IDs retire and an operator may have only
+some models approved. Prices: Cloudflare's Web Search API docs, October 2026, and Anthropic's and
+OpenAI's pricing pages, read 2026-11-23.
 
 <p align="center"><img src="../../docs/images/web-search-providers.svg" alt="Price per 1,000 searches and data retention: Ceramic $0.25 with ZDR, the default; Linkup $5 with ZDR; Exa $7 without ZDR; Anthropic or OpenAI search run by a model, $10 plus the model's tokens, on the operator's terms; search in the chat model's turn, $10 to $35, rejected" width="860"></p>
 
@@ -133,8 +139,9 @@ pricing pages, read 2026-11-23.
 - **Cost.** $0.25 per 1,000 searches: a twentieth of Linkup and a twenty-eighth of Exa.
 - **Content.** Ceramic runs its own index of 40B+ pages and returns descriptions of up to 8,000
   characters, so a result often answers the question without a fetch.
-- **Named in code.** With the var unset, `search.ts` sends `provider: "ceramic"` instead of
-  trusting the API's default, which Cloudflare could change to a provider that keeps data.
+- **Named in code.** Until an admin sets a provider, `search.ts` sends `provider: "ceramic"`
+  instead of trusting the API's default, which Cloudflare could change to a provider that keeps
+  data.
 
 Linkup and Exa are the Web Search API's other providers: the same call with another name. Neither
 has been run from this gatekeeper.
@@ -202,13 +209,9 @@ because each needs a new secret and sends traffic outside AI Gateway.
   `CF_AI_GATEWAY` names. Everywhere else (the dev server, previews, a deploy you run yourself) it
   stays `default`, which every account has, unless you set it on this Worker. The gateway must be
   in the Worker's own account: the `AI` binding can't reach another.
-- **Provider.** `WEB_SEARCH_PROVIDER` is a var on this Worker (see [Providers](#providers)). Set
-  it in the root `.dev.vars` for the dev server. In a deploy you run yourself, give it on every
-  deploy: `wrangler deploy` replaces a var set in the dashboard unless the config sets
-  `keep_vars`. The release manifest can't ask for it, because a preinstalled gatekeeper takes no
-  inputs, and the deploy service sends each gatekeeper's vars again on every upload. So on an
-  instance the deploy service manages, a var set by hand lasts until the next upgrade.
-  **A deployment that loses the var sends its searches to Ceramic again**, with no error.
+- **Provider.** No var and no deploy input: an admin sets it in the admin panel (see
+  [Providers](#providers)). The Workshop keeps it in its admin config, so it survives upgrades and
+  belongs to one Workshop even where several share this Worker.
 - **Billing.** Each search spends the deployment account's AI Gateway credits, unless the gateway
   holds a key for the search provider (see Known limits). With a model provider, each search bills
   that provider's key on the gateway for one web search and the model's tokens; billing those to
@@ -242,6 +245,14 @@ provider makes no outside request: the canary test measured that.
   per-user cost totals do not apply to it.
 - **OpenAI reads its cache.** A page OpenAI has not cached is not found: the canary page never
   was.
+- **The query guidance is Ceramic's.** `types.d.ts` tells every deployment's agent to send
+  Latin-script keywords and no question. The gatekeeper builds that text with no session, so it
+  can't know the provider. A model provider takes questions and other scripts (it ran both in the
+  measurements above), so its agent is held to rules it doesn't need.
+- **A provider a later version drops.** The gatekeeper checks the provider when an admin sets it.
+  If a later version no longer takes the stored value, every search fails, with the list of
+  providers in the error, until an admin sets another. The admin panel still shows the stored
+  value.
 - **Your own search provider key.** If the gateway that `CF_AI_GATEWAY` names holds a Ceramic key
   under the alias `default`, AI Gateway uses it. Ceramic bills the operator, their Ceramic terms
   apply, including data retention, and a search no longer falls back to credits: a revoked or

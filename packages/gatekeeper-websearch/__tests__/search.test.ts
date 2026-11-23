@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ObservationDescription } from "@gadgets/workshop-shared/gatekeeper";
-import { queryGuidance, search } from "../src/search.js";
+import { search } from "../src/search.js";
 
 type WebSearch = Ai["websearch"];
 
@@ -28,13 +28,10 @@ const refuse = async () => { throw new Error("refused"); };
 const noGateway = (): never => { throw new Error("no model request expected"); };
 const noWebSearch: WebSearch = async () => { throw new Error("no Web Search API call expected"); };
 
-// A gateway other than "default", so a test can tell the configured one was used.
+// A gateway other than "default", so a test can tell the configured one was used. `provider` is
+// what an admin set, if anything.
 function env(websearch: WebSearch, provider?: string) {
-  return {
-    AI: { websearch, gateway: noGateway },
-    CF_AI_GATEWAY: "instance-ai",
-    ...(provider !== undefined && { WEB_SEARCH_PROVIDER: provider }),
-  };
+  return { AI: { websearch, gateway: noGateway }, CF_AI_GATEWAY: "instance-ai", provider };
 }
 
 // A deployment whose provider is a model provider. `answer` answers its one model request.
@@ -43,11 +40,7 @@ function modelProvider(provider: string, answer: () => Response) {
   const gateway = vi.fn((_gatewayId: string) => ({ run }));
   return {
     run, gateway,
-    env: {
-      AI: { websearch: noWebSearch, gateway },
-      CF_AI_GATEWAY: "instance-ai",
-      WEB_SEARCH_PROVIDER: provider,
-    },
+    env: { AI: { websearch: noWebSearch, gateway }, CF_AI_GATEWAY: "instance-ai", provider },
   };
 }
 
@@ -127,7 +120,8 @@ describe("search", () => {
   it("searches the default gateway when none is configured", async () => {
     const websearch = vi.fn(respond([]));
 
-    await search({ AI: { websearch, gateway: noGateway } }, "q", recorder().audit);
+    await search({ AI: { websearch, gateway: noGateway }, provider: undefined }, "q",
+        recorder().audit);
 
     expect(websearch).toHaveBeenCalledWith(expect.objectContaining({ gatewayId: "default" }));
   });
@@ -198,9 +192,11 @@ describe("search", () => {
 
     for (const provider of [
       "bing", "Ceramic", "anthropic", "openai/", "/gpt-6-luna", "openai/ ", "anthropic//",
+      // A model ID that would write markup into the record, hide a character in it, or fill it.
+      "openai/gpt<!--", "openai/gpt-6\u200bluna", `openai/${"x".repeat(101)}`,
     ]) {
       await expect(search(env(websearch, provider), "q", audit), provider)
-        .rejects.toThrow("WEB_SEARCH_PROVIDER must be");
+        .rejects.toThrow("The search provider must be one of");
     }
     expect(websearch).not.toHaveBeenCalled();
     expect(descriptions).toEqual([]);
@@ -331,16 +327,5 @@ describe("search with a model provider", () => {
 
     await expect(search(model.env, "q", recorder().audit))
       .rejects.toThrow(/^Web search failed: the provider's response was not valid JSON\.$/);
-  });
-});
-
-describe("queryGuidance", () => {
-  // Under vitest a text module imports as its path, not its text, so only its presence shows.
-  it("gives Ceramic's query rules to a Ceramic deployment alone", () => {
-    expect(queryGuidance({})).not.toBe("");
-    expect(queryGuidance({ WEB_SEARCH_PROVIDER: "ceramic" })).toBe(queryGuidance({}));
-    for (const provider of ["linkup", "anthropic/claude-haiku-5-5", "openai/gpt-6-luna"]) {
-      expect(queryGuidance({ WEB_SEARCH_PROVIDER: provider }), provider).toBe("");
-    }
   });
 });
