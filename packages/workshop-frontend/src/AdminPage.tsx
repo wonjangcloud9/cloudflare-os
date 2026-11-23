@@ -222,11 +222,15 @@ export default function AdminPage() {
   }, [accentDraft, savedAccent])
 
   // Re-fetch policy: one toggle can affect other resource rows or remove a legacy restriction.
-  // Leaves the General-tab drafts untouched.
+  // Leaves the General-tab drafts untouched, and each gatekeeper's settings as they are shown:
+  // a setting's own save sets it, and this read may have begun before that save.
   const reloadResources = async () => {
     if (!admin) return
     const view = await admin.api.getSettings()
-    setResourceVendors(view.resourceVendors)
+    setResourceVendors((prev) => view.resourceVendors.map((vendor) => ({
+      ...vendor,
+      settings: prev.find((shown) => shown.vendorId === vendor.vendorId)?.settings ?? vendor.settings,
+    })))
   }
 
   const handleResourceToggle = async (vendorId: string, urlPattern: string, enabled: boolean) => {
