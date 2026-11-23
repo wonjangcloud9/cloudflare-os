@@ -4,7 +4,9 @@ import { z } from "zod";
 import { buildDescription } from "@gadgets/gatekeeper-kit/action-description";
 import type { ObservationDescription } from "@gadgets/workshop-shared/gatekeeper";
 import CERAMIC_QUERY_GUIDANCE from "./ceramic-query-guidance.txt";
-import { modelSearchRequest, readModelResults, type ModelProvider } from "./model-search.js";
+import {
+  modelSearchRequest, parseProviderJson, readModelResults, type ModelProvider,
+} from "./model-search.js";
 import type { WebSearchResult } from "./types.js";
 
 // The providers of Cloudflare's Web Search API, and the model providers whose own search a model
@@ -90,7 +92,7 @@ export async function search(
     // Not the body, which may quote the query back.
     throw new Error(`Web search failed with HTTP ${response.status}.`);
   }
-  const body: unknown = await response.json();
+  const body = parseProviderJson(await response.text());
   return "vendor" in provider
       ? readModelResults(provider.vendor, body, MAX_RESULTS)
       : RESPONSE_SCHEMA.parse(body).items;

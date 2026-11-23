@@ -141,17 +141,21 @@ function readOpenAi(body: unknown): Outcome {
   const report = output.find(item => item.type === "function_call" && item.name === REPORT_TOOL);
   return {
     searches,
-    report: report?.arguments === undefined ? undefined : parseJson(report.arguments),
+    report: report?.arguments === undefined ? undefined : parseProviderJson(report.arguments),
   };
 }
 
-function parseJson(text: string): unknown {
+/**
+ * Parses JSON `text` a provider sent. On bad JSON, throws an error that does not quote the text,
+ * which may hold the query.
+ */
+export function parseProviderJson(text: string): unknown {
   try {
     return JSON.parse(text);
   } catch {
     // The SyntaxError is dropped, not kept as the cause: its message quotes the text, and an
     // error's cause travels to the caller over RPC.
-    throw new Error("Web search failed: the provider's result list was not valid JSON.");
+    throw new Error("Web search failed: the provider's response was not valid JSON.");
   }
 }
 

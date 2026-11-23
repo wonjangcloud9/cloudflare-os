@@ -202,10 +202,12 @@ because each needs a new secret and sends traffic outside AI Gateway.
   stays `default`, which every account has, unless you set it on this Worker. The gateway must be
   in the Worker's own account: the `AI` binding can't reach another.
 - **Provider.** `WEB_SEARCH_PROVIDER` is a var on this Worker (see [Providers](#providers)). Set
-  it in the root `.dev.vars` for the dev server, or on the Worker in a deploy you run yourself.
-  The release manifest can't ask for it, because a preinstalled gatekeeper takes no inputs, and
-  the deploy service sends each gatekeeper's vars again on every upload. So on an instance the
-  deploy service manages, a var set by hand lasts until the next upgrade.
+  it in the root `.dev.vars` for the dev server. In a deploy you run yourself, give it on every
+  deploy: `wrangler deploy` replaces a var set in the dashboard unless the config sets
+  `keep_vars`. The release manifest can't ask for it, because a preinstalled gatekeeper takes no
+  inputs, and the deploy service sends each gatekeeper's vars again on every upload. So on an
+  instance the deploy service manages, a var set by hand lasts until the next upgrade.
+  **A deployment that loses the var sends its searches to Ceramic again**, with no error.
 - **Billing.** Each search spends the deployment account's AI Gateway credits, unless the gateway
   holds a key for the search provider (see Known limits). With a model provider, each search bills
   that provider's key on the gateway for one web search and the model's tokens; billing those to
@@ -244,5 +246,11 @@ provider makes no outside request: the canary test measured that.
   apply, including data retention, and a search no longer falls back to credits: a revoked or
   empty key fails every search. The deploy wizard can store the key; a key on any other gateway is
   not used. Cloudflare documents the same for a Linkup or Exa key; it has not been run here.
+- **Linkup's licensed sources.** For an organization Linkup has authorized, Linkup adds licensed
+  publisher content, such as AFP dispatches, to its results
+  ([Linkup](https://docs.linkup.so/pages/documentation/platform/premium-sources.md), read
+  2026-11-23). Web Search treats every result as public, so with such an operator's own Linkup key
+  that content would reach every collaborator of a workspace. Whether Cloudflare's Web Search API
+  passes it through is not checked.
 - **Blueprints.** A blueprint export drops ambient bindings, so a gadget installed from a blueprint
   loses `WEB_SEARCH` until the agent binds it again with `setGadgetBinding`.

@@ -11,6 +11,8 @@ function respond(items: unknown[]): WebSearch {
 const insufficientCredits: WebSearch = async () =>
   new Response("insufficient credits for q", { status: 402 });
 
+const cutShort: WebSearch = async () => new Response('{"items": [{"title": "q is a secr');
+
 function recorder() {
   const descriptions: ObservationDescription[] = [];
   return {
@@ -179,6 +181,16 @@ describe("search", () => {
       .rejects.toThrow(/^Web search failed with HTTP 402\.$/);
   });
 
+  it("fails on a response that is not JSON, without quoting it in the error or its cause",
+      async () => {
+    const error = await search(env(cutShort), "q", recorder().audit)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toEqual(new Error(
+        "Web search failed: the provider's response was not valid JSON."));
+    expect(error).not.toHaveProperty("cause");
+  });
+
   it("refuses a provider setting it does not know, before anything is recorded or sent",
       async () => {
     const websearch = vi.fn(respond([]));
@@ -310,20 +322,18 @@ describe("search with a model provider", () => {
       .rejects.toThrow(/^Web search failed: the provider reported no results\.$/);
   });
 
-  it("fails on a result list cut short, without quoting it in the error or its cause", async () => {
+  it("fails on a result list cut short, without quoting it", async () => {
     const report = openAiReport(FOUND);
     const model = modelProvider("openai/gpt-6-luna",
         openAi(openAiSearch(FOUND), { ...report, arguments: report.arguments.slice(0, 40) }));
 
-    const error = await search(model.env, "q", recorder().audit).catch((caught: unknown) => caught);
-
-    expect(error).toEqual(new Error(
-        "Web search failed: the provider's result list was not valid JSON."));
-    expect(error).not.toHaveProperty("cause");
+    await expect(search(model.env, "q", recorder().audit))
+      .rejects.toThrow(/^Web search failed: the provider's response was not valid JSON\.$/);
   });
 });
 
 describe("queryGuidance", () => {
+  // Under vitest a text module imports as its path, not its text, so only its presence shows.
   it("gives Ceramic's query rules to a Ceramic deployment alone", () => {
     expect(queryGuidance({})).not.toBe("");
     expect(queryGuidance({ WEB_SEARCH_PROVIDER: "ceramic" })).toBe(queryGuidance({}));

@@ -23,6 +23,9 @@ import { queryGuidance, search } from "./search.js";
 import type { WebSearchResult, WebSearchSession } from "./types.js";
 import TYPES_CODE from "./types.txt";
 
+// The agent-facing declarations: the contract, then the provider's query guidance if it has any.
+const agentTypes = (env: Cloudflare.Env): string => TYPES_CODE + queryGuidance(env);
+
 const WEB_SEARCH_ICON = {
   url:
     "data:image/svg+xml," +
@@ -70,9 +73,9 @@ export class WebSearchGatekeeper
     };
   }
 
-  /** Returns the agent-facing WebSearchSession declarations, with the provider's query guidance. */
+  /** Returns the agent-facing declarations for the provider the operator set. */
   async getTypeScriptTypes(): Promise<string> {
-    return TYPES_CODE + queryGuidance(this.env);
+    return agentTypes(this.env);
   }
 
   /** Reports that Web Search has no actions. */
@@ -223,9 +226,9 @@ export class GatekeeperVendor extends WorkerEntrypoint<Cloudflare.Env> {
     return [];
   }
 
-  /** Returns the agent-facing WebSearchSession declarations, with the provider's query guidance. */
+  /** Returns the agent-facing declarations for the provider the operator set. */
   async getTypeScriptTypes(): Promise<string> {
-    return TYPES_CODE + queryGuidance(this.env);
+    return agentTypes(this.env);
   }
 }
 
