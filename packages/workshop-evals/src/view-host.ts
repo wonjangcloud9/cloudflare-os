@@ -1,6 +1,11 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { chromium, type Browser, type BrowserContext, type Frame, type Page } from "playwright";
 import { z } from "zod";
+import type { ChatEmbeds } from "@gadgets/workshop-shared/api";
+import { literalImageSources, viewFileSources } from "@gadgets/workshop-shared/inline-html-blocks";
+
+/** A view's message's pinned files (`AiChatMessageBody.embeds`), and how to read one's text. */
+export type ViewFiles = { oids: ChatEmbeds; readText: (oid: string) => Promise<string> };
 
 // Runs an `<inline-html>` view as the Workshop does, so an eval can see what it does: in an
 // opaque-origin srcdoc frame with `sandbox="allow-scripts"` (UiBlockCard.tsx) and, but for the
@@ -61,14 +66,24 @@ const FRAME_SCRIPT = String.raw`(() => {
   }
   const listens = el => listening.has(el) || INTERACTIVE.some(type => el.hasAttribute("on" + type));
 
-  const track = promise => {
-    state.started++;
+  // Work the view started that the host is still doing; only agent.send counts as a send.
+  const pend = promise => {
     state.pending++;
     const done = () => { state.pending--; };
     promise.then(done, done);
     return promise;
   };
+  const track = promise => {
+    state.started++;
+    return pend(promise);
+  };
   globalThis.agent = Object.freeze({ send: message => track(bridge("send", message)) });
+  // The Workshop frame's data-file reader (uiBlockFrame.ts): whole files, refused unless pinned
+  // and named in the view's own text.
+  globalThis.embeds = Object.freeze({
+    json: async source => JSON.parse(await pend(bridge("readFile", source))),
+    text: source => pend(bridge("readFile", source)),
+  });
 
   const norm = text => String(text ?? "").toLowerCase().replace(/\s+/g, " ").trim();
   const center = box => ({ x: box.left + box.width / 2, y: box.top + box.height / 2 });
@@ -614,25 +629,31 @@ export class RenderedView implements AsyncDisposable {
   unsettled: string | undefined;
 
   readonly #context: BrowserContext;
+  readonly #files: ViewFiles | undefined;
+  // The files the view may read, by the Workshop's rule (viewFileSources); set before it loads.
+  #fileSources: ReadonlySet<string> = new Set();
   #page: Page | undefined;
   #frame: Frame | undefined;
   #crash: string | undefined;
   #stuck: string | undefined;
   #closed = false;
 
-  private constructor(context: BrowserContext) {
+  private constructor(context: BrowserContext, files: ViewFiles | undefined) {
     this.#context = context;
+    this.#files = files;
   }
 
   /**
    * Runs `html`, the HTML of an `<inline-html>` block, and waits until it settles: loaded, with no
-   * `agent.send` pending. A view that never settles still opens, with `unsettled` set.
+   * `agent.send` or file read pending. A view that never settles still opens, with `unsettled`
+   * set. `files` is its message's pinned files, which its `embeds` reads; without them it reads
+   * none.
    */
-  static async open(html: string): Promise<RenderedView> {
+  static async open(html: string, files?: ViewFiles): Promise<RenderedView> {
     const launched = await launchBrowser();
     let view: RenderedView | undefined;
     try {
-      view = new RenderedView(await launched.newContext({ viewport: VIEWPORT }));
+      view = new RenderedView(await launched.newContext({ viewport: VIEWPORT }), files);
       await view.#start();
     } catch (error) {
       await view?.[Symbol.asyncDispose]();
@@ -668,6 +689,8 @@ export class RenderedView implements AsyncDisposable {
 
   async #load(html: string): Promise<void> {
     const page = this.#requirePage();
+    // The image sources the Workshop's card decodes from the block, run in this page's DOM.
+    this.#fileSources = viewFileSources(html, await page.evaluate(literalImageSources, html));
     const loaded = await within(page.evaluate(`new Promise(resolve => {
       const frame = document.querySelector("iframe");
       frame.addEventListener("load", resolve, { once: true });
@@ -825,6 +848,16 @@ export class RenderedView implements AsyncDisposable {
       case "send":
         this.messages.push(args[0]);
         return undefined;
+      case "readFile": {
+        const [source] = args;
+        const files = this.#files;
+        const oid = files !== undefined && typeof source === "string" && this.#fileSources.has(source) &&
+            Object.hasOwn(files.oids, source) ? files.oids[source] : undefined;
+        if (files === undefined || typeof source !== "string" || !oid) {
+          throw new Error(`File unavailable: ${String(source)}`);
+        }
+        return await files.readText(oid);
+      }
       default:
         throw new TypeError("The view called the eval host incorrectly");
     }

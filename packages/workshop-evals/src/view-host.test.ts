@@ -242,4 +242,42 @@ describe("RenderedView", { timeout: 60_000 }, () => {
       expect(series.marks.map(({ label, axis }) => [label, axis]), JSON.stringify(gap)).toEqual([[0, "y"], [1, "y"]]);
     }
   });
+
+  it("gives a view the files the Workshop allows it, pinned in its message, and refuses others", async () => {
+    const named = "worktree://OUTPUTS/totals.json", other = "worktree://OUTPUTS/other.json";
+    // An image source in a template, decoded as the Workshop's card decodes it (a&amp;b → a&b).
+    const image = "worktree://OUTPUTS/a&b.json";
+    const read: string[] = [];
+    await using view = await RenderedView.open(`
+      <p id="out"></p>
+      <template><img src="worktree://OUTPUTS/a&amp;b.json"></template>
+      <script type="module">
+        const totals = await embeds.json("${named}");
+        const source = document.querySelector("template").content.querySelector("img").getAttribute("src");
+        const fromImage = await embeds.json(source);
+        const refused = await embeds.text("worktree://OUTPUTS/" + "other.json").catch(error => error.message);
+        const unpinned = await embeds.text("worktree://OUTPUTS/missing.json").catch(error => error.message);
+        document.getElementById("out").textContent = [totals.Food, fromImage.Food, refused, unpinned].join(" | ");
+      </script>
+      <!-- "worktree://OUTPUTS/missing.json" -->`, {
+      oids: { [named]: "a".repeat(40), [image]: "c".repeat(40), [other]: "b".repeat(40),
+        "worktree://OUTPUTS/missing.json": null },
+      readText: async oid => { read.push(oid); return '{"Food":420}'; },
+    });
+    const [totals, fromImage, refused, unpinned] = (await view.text()).trim().split(" | ");
+    expect([totals, fromImage]).toEqual(["420", "420"]);
+    expect(refused).toMatch(/^File unavailable/);
+    expect(unpinned).toMatch(/^File unavailable/);
+    expect(read).toEqual(["a".repeat(40), "c".repeat(40)]);
+  });
+
+  it("reads no file for a view opened without its message's files", async () => {
+    await using view = await RenderedView.open(`
+      <p id="out"></p>
+      <script type="module">
+        document.getElementById("out").textContent =
+          await embeds.json("worktree://OUTPUTS/totals.json").catch(error => error.message);
+      </script>`);
+    expect((await view.text()).trim()).toMatch(/^File unavailable/);
+  });
 });
