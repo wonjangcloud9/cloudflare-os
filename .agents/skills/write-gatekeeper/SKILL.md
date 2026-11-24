@@ -298,6 +298,10 @@ gatekeeper):
   anchor it is called with is the item's `id`, or begins with it. Every spot it reports
   (`host.reportFocus()`) begins with the `id` too, so that a frame started again is sent to the
   same item. Keep an `id` well under the 256 characters an anchor may have.
+- What a preview reports is also what the agent is told the user was looking at
+  (`<user-focus>`), under the connection's title alone. Say in the session's JSDoc what an
+  anchor is made of, start an item's label with the item's name, and give the text the user has
+  selected as the spot's `context`.
 - The anchor may come from any client, so it only chooses what to draw: resolve it through the
   session, which checks access as any open does. Open the item by the methods a gadget bound to
   the connection would use (the Drive preview walks `openFolder()` to `openGoogleDoc()`), not by

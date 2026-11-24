@@ -978,6 +978,12 @@ it('tells its host the heading the reader is under, and goes to one its host nam
   // Above its first heading, a document of one tab has no spot to tell of.
   frame!.contentWindow!.scrollTo(0, 0)
   await expect.poll(() => said.at(-1)).toBeNull()
+  // Text selected there is what "this" is, and is told with the place it is in.
+  const selection = frame!.contentWindow!.getSelection()!
+  selection.selectAllChildren(page.querySelector('[aria-level="1"]')!)
+  await expect.poll(() => said.at(-1)).toEqual({ anchor: '?tab=t.0', label: 'Selected text', context: 'Intro' })
+  selection.removeAllRanges()
+  await expect.poll(() => said.at(-1)).toBeNull()
   expect(await go('?tab=t.0#heading=h.intro')).toBe(true)
   expect(said.at(-1)).toEqual({ anchor: '?tab=t.0#heading=h.intro', label: 'Intro' })
 

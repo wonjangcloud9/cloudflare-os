@@ -403,6 +403,9 @@ export type SlideThumbnail = {
  * element takes from its placeholder or theme; `getSlideThumbnail()` shows the slide whole.
  * `getPresentation()` lists the masters and layouts, with their backgrounds and the theme's
  * colours, but not their elements.
+ *
+ * A `<user-focus>` on this presentation says which slide the user was viewing: its `anchor` is
+ * the slide's `id`, and its body the text they had selected.
  */
 export interface GooglePresentationReadSession {
   /** Return presentation metadata and a summary of every slide. */

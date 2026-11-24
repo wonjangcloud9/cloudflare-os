@@ -762,8 +762,8 @@ async function followLink(event) {
 // How far under the top of the view a heading is passed.
 const PASSED = 96;
 
-// The tab shown, in a document of several, and the heading the view has passed: an address of the
-// form the document's own links to its tabs and headings have.
+// The tab shown and the heading the view has passed: an address of the form the document's own
+// links to its tabs and headings have.
 function here() {
   const listed = loaded && tabs.find(found => found.id === tabId);
   if (!listed) return undefined;
@@ -773,10 +773,10 @@ function here() {
   const ended = scrollTop > 0 && scrollTop + clientHeight >= scrollHeight - 1;
   const heading = headings.findLast(found => found.dataset.heading &&
     (ended || found.getBoundingClientRect().top <= PASSED));
-  if (tabs.length < 2 && !heading) return undefined;
   return {
     anchor: `?tab=${encodeURIComponent(tabId)}${heading ? `#heading=${encodeURIComponent(heading.dataset.heading)}` : ''}`,
-    label: [tabs.length > 1 && listed.title, heading && headingText(heading)].filter(Boolean).join(' › '),
+    // None at the top of a document of one tab: nowhere more particular than the document.
+    label: [tabs.length > 1 && listed.title, heading && headingText(heading)].filter(Boolean).join(' › ') || undefined,
   };
 }
 

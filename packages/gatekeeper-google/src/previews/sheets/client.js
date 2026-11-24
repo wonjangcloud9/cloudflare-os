@@ -1223,8 +1223,9 @@ async function load() {
 // ---------------------------------------------------------------------------------------------
 // Where the reader is
 
-// The sheet shown, in a spreadsheet of several, by its ID: a title can be changed.
-const here = () => loaded && info.sheets.pending.length > 1 ? { anchor: String(sheet.id), label: sheet.title } : undefined;
+// The sheet shown, by its ID: a title can be changed. One of several is labelled.
+const here = () => loaded
+  ? { anchor: String(sheet.id), label: info.sheets.pending.length > 1 ? sheet.title : undefined } : undefined;
 
 // Shows the sheet `anchor` names (GadgetHost.onNavigate()). It is one here() gave, but may come
 // from anywhere, so it only chooses what to show. False for a sheet no longer there, or one with

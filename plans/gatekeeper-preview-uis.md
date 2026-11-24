@@ -294,9 +294,11 @@ same `host`, so it does the same, and the pane keeps what it says:
 
 - **A preview reports the reader's spot** as `{ anchor, label }`, each time it moves: the anchor
   is the preview's own and stable (an ID, not a title or a number that a change moves), the label
-  is what a person would call the place. Nothing is reported where there is only one place to be
-  (a spreadsheet of one sheet). `reportSpot()` in `previews/shared/chrome.js` tells the host only
-  of a spot that has moved, and keeps the label within the host's limit.
+  is what a person would call the place. Text the reader has selected is the spot's `context`,
+  which is what tells the agent what "this" is. Where there is only one place to be (a
+  spreadsheet of one sheet) the place has no label, and is reported only with text selected, as
+  "Selected text". `reportSpot()` in `previews/shared/chrome.js` reads the selection for every
+  preview, tells the host only of what has changed, and keeps both within the host's limits.
 - **A preview registers `onNavigate()` before its first read**, and makes that read only if the
   host sends it nowhere: a preview sent to a spot opens on it, with one read instead of two. It
   answers false for a spot that is gone, having left the reader where they are, or opened where
@@ -307,18 +309,29 @@ same `host`, so it does the same, and the pane keeps what it says:
   ID; Google Slides, the slide's ID.
 - **An item's spot starts with the item**: `<previewOf.id> <spot>`. The Drive entry is sent the
   file's name, opens it, and starts the file's preview with a host of its own making, which puts
-  the name before each spot that preview reports and takes it off each it is sent to. The three
+  the name before each spot that preview reports and takes it off each it is sent to. It labels
+  each spot by the file's name first (`getEntry()`, asked with the open, so one more logged read
+  for each file opened), since the agent is told only the connection's title. The three
   previews do not know whether a connection or the Drive entry started them. A frame draws one
   file: sent to another it answers false, and the Workshop gives each file a frame of its own.
 - **The Workshop keeps each preview's last anchor** (`usePreviewFocus`), by connection and item,
   for a stay in a workspace, and `GadgetUI` sends a frame to it as the frame registers. So a
   preview closed and opened again, or left for another and returned to, opens where it was left.
-  The preview of an item that has reported nothing is sent to the item. Only the frame's own
-  reports move the spot: nothing navigates a preview that is running.
-- **Not built: the agent is not told.** A message's focus (`ChatMessageOptions.focus`) names a
-  gadget, and the kernel refuses any other workpiece, so the chat's focus chip and the agent's
-  `<user-focus>` block stay a gadget's. Letting a focus name a connection is a kernel change of
-  its own (see Punted).
+  The preview of an item that has reported nothing is sent to the item.
+- **The agent is told.** A connection with a UI stands where a gadget would, so a message's
+  focus (`ChatMessageOptions.focus`) may name one: the kernel checks and stamps it as a gadget's,
+  titled by the connection's resource, and the agent reads the same `<user-focus>` block, whose
+  `gadget` is its binding to the connection. The kernel does not record which connections have a
+  UI, so it takes a focus on any; a focus grants nothing. Each session's type docs say what its
+  anchors are made of, so the agent can read one.
+- **The pane offers its preview as a gadget is offered**: a second `usePaneFocus`, whose gadget
+  is the preview's connection, gives the composer's chip and keeps the label and context the
+  frame reports. The connection is the focus, not the item: the item is in the anchor.
+- **A sent message's chip opens its preview** at the spot (`previewAt()`): the one with changes
+  waiting or already open if there is one, and otherwise as the connection offers. A connection
+  with a preview of its own is drawn whole; one with none draws its items, and the item is the
+  anchor up to its first space. Such an item is drawn under the connection's title and with no
+  link out, since the message kept neither of the item's own.
 
 ## Verification of the framework
 
@@ -842,6 +855,9 @@ differs is which file, which section 1a answers:
    stacked on the one before.
 5. **Where the reader is**, stacked on the fourth: section 5, and the item named by an anchor
    in place of a session the Workshop opened (section 1a).
+6. **Telling the agent**, stacked on the fifth: the kernel's `#stampFocus()` takes a connection
+   (one commit, with the agent's guidance), then the pane's offer and the chip, then the
+   selection, the file's name and the type docs.
 
 ## Punted / future work
 
@@ -866,14 +882,12 @@ differs is which file, which section 1a answers:
   gatekeeper naming the type of session the file is opened as, as `describe().tsType` does for
   a connection. Such a gadget is bound to the folder's connection, so it also opens the file
   itself, as the Drive entry does, by methods its types have.
-- **Telling the agent what the user is looking at in a preview.** A preview already reports it
-  (section 5). What is missing is in the kernel: `MessageFocus` names a gadget, and
-  `#stampFocus()` refuses any other workpiece. Accepting a connection there, titled by its
-  `resourceTitle`, is a few lines and leaves the stored shape and the `<user-focus>` block as
-  they are. The Workshop would then offer the pane's preview as a message's focus, and a chip's
-  click would open it. With that, a preview is worth giving a `context`: the text selected.
-- **A file's name in its spot's label.** A file reached through Drive is labelled by its kind
-  ("Document › Costs"): its session does not say its name, which the action that named it did.
+- **More to select than text.** A spot's `context` is the text selected. A picked cell or range
+  by its A1 name, or a slide's element by its ID, would tell the agent more, and needs a way to
+  pick one in a preview that only reads.
+- **An item's own title on a chip opened later.** A message's focus keeps the connection's
+  title. Opening the chip of a file with no change waiting draws the file under that title; the
+  item's own would need the gatekeeper to describe an item by its ID.
 - **Change notification beyond the Workshop frame.** Either a live callback on the session (no
   precedent for a non-persistent callback; lost when the gatekeeper is evicted) or a hook through
   `bindHook()` (persistent stub, user approval, one logged read per delivery). Open: whether a

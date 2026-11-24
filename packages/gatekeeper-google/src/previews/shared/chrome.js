@@ -565,27 +565,41 @@ export function loadOnRefresh(load) {
 // ---------------------------------------------------------------------------------------------
 // Where the reader is
 
-// The longest label a host takes (MAX_FOCUS_LABEL_LENGTH).
+// The longest label and context a host takes (MAX_FOCUS_LABEL_LENGTH, MAX_FOCUS_CONTEXT_LENGTH).
 const LONGEST_LABEL = 120;
+const LONGEST_CONTEXT = 2000;
+// How long a selection is left to settle: one being dragged out changes at every move.
+const SELECTION_SETTLE_MS = 200;
 
 /** `label` cut to what a host takes. */
 export const fitLabel = label => label.length > LONGEST_LABEL ? `${label.slice(0, LONGEST_LABEL - 1)}…` : label;
 
 /**
- * Tells the frame's `host` where the reader is (GadgetHost.reportFocus()), so that the preview
- * can be sent back there. `spot()` gives the place as `{ anchor, label }`, or nothing when it is
- * nowhere more particular than the resource. Returns what to call when the place may have moved:
- * the host hears only of one that has.
+ * Tells the frame's `host` where the reader is and what they have selected there
+ * (GadgetHost.reportFocus()), so that the preview can be sent back there and the agent told what
+ * "this" is. `spot()` gives the place as `{ anchor, label }`, with no label where it is nowhere
+ * more particular than the resource, which is said only with text selected, and nothing where
+ * there is no place yet. Returns what to call when the place may have moved: the host hears only
+ * of what has changed.
  */
 export function reportSpot(host, spot) {
   // A frame that has said nothing is nowhere in particular, which is what null says.
   let said = 'null';
-  return () => {
-    const { anchor, label } = spot() ?? {};
-    const focus = anchor === undefined ? null : { anchor, label: fitLabel(label) };
+  const say = () => {
+    // Without the word joiners a document's paragraphs end in.
+    const context = document.getSelection().toString().replaceAll('\u2060', '').trim().slice(0, LONGEST_CONTEXT);
+    const { anchor, label = context && 'Selected text' } = spot() ?? {};
+    const focus = anchor === undefined || !label
+      ? null : { anchor, label: fitLabel(label), ...context && { context } };
     const saying = JSON.stringify(focus);
     if (saying === said) return;
     said = saying;
     host.reportFocus(focus);
   };
+  let settling;
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(settling);
+    settling = setTimeout(say, SELECTION_SETTLE_MS);
+  });
+  return say;
 }

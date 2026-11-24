@@ -22,7 +22,7 @@ const OPENERS = { docs: 'openGoogleDoc', sheets: 'openGoogleSheet', slides: 'ope
 // The name an edit gives its file (drivePreviewId() in drive-editors.ts): its kind, the folders
 // between the connected one and the file, and the file.
 const NAME = /^(docs|sheets|slides):((?:[\w-]+\/)*)([\w-]+)$/;
-// What a file of each kind is called where its name is not known: its session does not say it.
+// What a file of each kind is called when its name could not be read.
 const NOUNS = { docs: 'Document', sheets: 'Spreadsheet', slides: 'Presentation' };
 // The longest anchor a host takes (MAX_FOCUS_ANCHOR_LENGTH).
 const LONGEST_ANCHOR = 256;
@@ -44,9 +44,14 @@ async function main(session, host) {
     let folder = session;
     for (const id of way.split('/').filter(Boolean)) folders.push(folder = folder.openFolder(id));
     let file;
+    let name;
     try {
       if (!kind) throw new Error('This Google Drive connection has no preview by that name.');
-      file = await folder[OPENERS[kind]](fileId);
+      // The file's name, by which its spots are labelled, is asked in the same round trip.
+      [file, name] = await Promise.all([
+        folder[OPENERS[kind]](fileId),
+        folder.getEntry(fileId).then(entry => entry.name, () => NOUNS[kind]),
+      ]);
     } catch (error) {
       showError(error, 'file', () => open(item, spot));
       return false;
@@ -59,8 +64,8 @@ async function main(session, host) {
     const say = focus => {
       const anchor = focus ? `${item} ${focus.anchor}` : item;
       host.reportFocus(focus && anchor.length <= LONGEST_ANCHOR
-        ? { ...focus, anchor, label: fitLabel(`${NOUNS[kind]} › ${focus.label}`) }
-        : item.length <= LONGEST_ANCHOR ? { anchor: item, label: NOUNS[kind] } : null);
+        ? { ...focus, anchor, label: fitLabel(`${name} › ${focus.label}`) }
+        : item.length <= LONGEST_ANCHOR ? { anchor: item, label: fitLabel(name) } : null);
     };
     say(null);
     let found = true;

@@ -887,10 +887,11 @@ async function load() {
 // ---------------------------------------------------------------------------------------------
 // Where the reader is
 
-// The slide the view is on, in a deck of several, by its ID: its number moves with the deck.
+// The slide the view is on, by its ID: its number moves with the deck. One of several is labelled.
 function here() {
-  const row = loaded && rows.length > 1 ? rows[viewed] : undefined;
+  const row = loaded ? rows[viewed] : undefined;
   if (!row) return undefined;
+  if (rows.length < 2) return { anchor: row.id };
   const number = rows.slice(0, viewed + 1).filter(kept => kept.slide).length;
   return { anchor: row.id, label: row.slide ? `Slide ${number}` : `Deleted slide: ${row.title}` };
 }

@@ -133,6 +133,9 @@ export type SpreadsheetFormats = {
 /**
  * Read-only access to one Google spreadsheet. With changes queued, reads show them as entered (see
  * `pendingCells`).
+ *
+ * A `<user-focus>` on this spreadsheet says which worksheet the user was viewing: its `anchor` is
+ * the worksheet's `id`, and its body the text of the cells they had selected.
  */
 export interface GoogleSpreadsheetReadSession {
   /** Return spreadsheet metadata and its worksheet list. */
