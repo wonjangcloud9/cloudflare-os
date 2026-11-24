@@ -47,7 +47,8 @@ export type GoogleDocTab = {
  *
  * A `<user-focus>` on this document says where the user was reading. Its `anchor` is
  * `?tab=<tabId>`, then `#heading=<ID>` of the last heading they had passed, as in a link to that
- * heading; its `label` gives their titles, and its body the text the user had selected.
+ * heading; its `label` gives their titles. Its body is the text they had selected, or else the
+ * paragraph they had clicked, which is then under that heading.
  */
 export interface GoogleDocReadSession {
   /** Return current document metadata. Works with any number of tabs. */

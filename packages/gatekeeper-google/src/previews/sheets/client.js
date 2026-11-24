@@ -125,6 +125,7 @@ styleSheet.textContent = `
   .sift::after { content: ''; flex: none; width: 9px; height: 7px; margin: 0 0 4px auto;
     background: var(--dim); clip-path: polygon(0 0, 100% 0, 62% 55%, 62% 100%, 38% 100%, 38% 55%); }
   .picked { box-shadow: inset 0 0 0 2px var(--pick); }
+  .ranged:not(.picked) { box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--pick) 16%, transparent); }
 
   /* What a pending change did. A changed cell is tinted and keeps its change at hand. */
   .c { --corner: linear-gradient(135deg, var(--mark-ink) 5px, transparent 5px); }
@@ -426,7 +427,8 @@ const marks = sizer.appendChild(make('div'));
 // The window drawn: what readDrawing() returned, its visible rows and columns, and its cells'
 // elements by row and column number.
 let shown;
-// The cell picked, by name, and the pending changes of the sheet shown.
+// The cells picked, by name: one, or a range such as `B2:D5`. And the pending changes of the
+// sheet shown.
 let picked;
 let info = { changes: [], areas: [], sheets: { saved: [], pending: [] } };
 
@@ -806,24 +808,67 @@ grid.addEventListener('focusin', event => showPeek(event.target.closest('.c')));
 grid.addEventListener('focusout', () => showPeek());
 scroller.addEventListener('scroll', () => showPeek(), { passive: true });
 
-// The cell picked is ringed as Google Sheets rings it, and said in the strip above the grid.
+// The cell picked is ringed as Google Sheets rings it, and said in the strip above the grid. Of a
+// range that is its first cell, and the rest are tinted.
 function pick(name) {
   picked = name;
-  for (const lit of grid.querySelectorAll('.picked, .h.on')) lit.classList.remove('picked', 'on');
-  const node = shown?.nodes.get(name);
+  for (const lit of grid.querySelectorAll('.picked, .ranged, .h.on')) lit.classList.remove('picked', 'ranged', 'on');
+  const [first] = name?.split(':') ?? [];
+  const node = shown?.nodes.get(first);
   stripAt.textContent = node ? name : '';
   stripText.textContent = '';
-  if (!node) return;
+  if (name !== first) {
+    for (const other of shown?.nodes.values() ?? []) other.classList.toggle('ranged', holdsCell(name, other.at.row, other.at.column));
+  }
+  if (!node) return saySpot();
   node.classList.add('picked');
   const { row, column, cell } = node.at;
   shown.head.row[trackOf(shown.rows, row)]?.classList.add('on');
   shown.head.column[trackOf(shown.columns, column)]?.classList.add('on');
   stripText.textContent = cell?.change !== undefined && cell.entered !== null ? String(cell.entered) : showing(cell).text;
+  saySpot();
 }
 
+// What the cells picked hold: a range's as lines of tab-separated cells, as far as it is drawn.
+function pickedText() {
+  if (!picked?.includes(':')) return stripText.textContent;
+  const lines = new Map();
+  for (const { at } of shown?.nodes.values() ?? []) {
+    if (!holdsCell(picked, at.row, at.column)) continue;
+    if (!lines.has(at.row)) lines.set(at.row, []);
+    lines.get(at.row)[at.column] = showing(at.cell).text;
+  }
+  const { c0 } = rectOf(picked);
+  return [...lines].toSorted(([above], [below]) => above - below)
+    .map(([, cells]) => cells.slice(c0).join('\t')).join('\n').trimEnd();
+}
+
+// The name of the cells from one corner to the other: a cell, or a range.
+function areaName(one, other) {
+  const [first, last] = [Math.min, Math.max]
+    .map(most => cellName(most(one.row, other.row), most(one.column, other.column)));
+  return first === last ? first : `${first}:${last}`;
+}
+
+// A click picks a cell. A press let go on another cell, or a click with Shift held, picks the
+// range from the first to it, in place of the text the browser would select.
+let pressed;
+grid.addEventListener('pointerdown', event => {
+  pressed = event.target.closest('.c')?.at;
+});
+grid.addEventListener('pointerup', event => {
+  const [from, at] = [pressed, event.target.closest('.c')?.at];
+  pressed = undefined;
+  if (!at || !from || at === from) return;
+  pick(areaName(from, at));
+  getSelection().removeAllRanges();
+});
 grid.addEventListener('click', event => {
-  const node = event.target.closest('.c');
-  if (node?.at) pick(cellName(node.at.row, node.at.column));
+  const at = event.target.closest('.c')?.at;
+  if (!at) return;
+  const from = event.shiftKey && picked ? rectOf(picked.split(':')[0]) : undefined;
+  pick(areaName(from ? { row: from.r0, column: from.c0 } : at, at));
+  if (from) getSelection().removeAllRanges();
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -979,6 +1024,13 @@ function holds(view) {
 }
 
 const sized = list => list.reduce((sum, line) => sum + line.size, 0);
+const stuck = list => sized(list.filter(line => line.sticks !== undefined));
+
+// Brings the cell at `r0` and `c0` into view, clear of the frozen lines, which lie over what
+// scrolls.
+const scrollToCell = ({ r0, c0 }) => scroller.scrollTo(
+  Math.max(0, starts(axes.columns)[c0] - stuck(shown.columns) - 120),
+  Math.max(0, starts(axes.rows)[r0] - stuck(shown.rows) - 90));
 
 // Reads the window around `view`, asking again for a smaller one while it is refused as too large.
 async function readWindow(view, current) {
@@ -1021,13 +1073,10 @@ async function show(view, current, target) {
   });
   marks.replaceChildren(...rings, ...rings.flatMap(ring => ring.tag ?? []), ...(drawing.charts ?? []).map(chartBox));
   if (!page.contains(scroller)) page.replaceChildren(strip, scroller, peek, missed);
-  const stuck = list => sized(list.filter(line => line.sticks !== undefined));
   scroller.style.scrollPadding = `${HEAD_H + stuck(shown.rows) + 8}px 8px 8px ${HEAD_W + stuck(shown.columns) + 8}px`;
   placeRings();
   if (target) {
-    // Clear of the frozen lines, which lie over what scrolls.
-    scroller.scrollTo(Math.max(0, starts(axes.columns)[target.c0] - stuck(shown.columns) - 120),
-      Math.max(0, starts(axes.rows)[target.r0] - stuck(shown.rows) - 90));
+    scrollToCell(target);
   } else {
     scroller.scrollTo(starts(axes.columns)[before.c0] + held.left, starts(axes.rows)[before.r0] + held.top);
   }
@@ -1223,25 +1272,38 @@ async function load() {
 // ---------------------------------------------------------------------------------------------
 // Where the reader is
 
-// The sheet shown, by its ID: a title can be changed. One of several is labelled.
-const here = () => loaded
-  ? { anchor: String(sheet.id), label: info.sheets.pending.length > 1 ? sheet.title : undefined } : undefined;
+// The sheet shown, by its ID: a title can be changed. One of several is labelled. The cells picked
+// are named after it as the session names them, with what they hold.
+const here = () => loaded ? {
+  anchor: picked ? `${sheet.id}!${picked}` : String(sheet.id),
+  label: [info.sheets.pending.length > 1 && sheet.title, picked].filter(Boolean).join(' › ') || undefined,
+  context: picked && pickedText(),
+} : undefined;
 
-// Shows the sheet `anchor` names (GadgetHost.onNavigate()). It is one here() gave, but may come
-// from anywhere, so it only chooses what to show. False for a sheet no longer there, or one with
-// no cells to draw: the reader stays on the sheet they are on, or starts where readChanges() does.
+// Shows the sheet `anchor` names, at the cell named after it (GadgetHost.onNavigate()). It is one
+// here() gave, but may come from anywhere, so it only chooses what to show. False for a sheet no
+// longer there, or one with no cells to draw: the reader stays on the sheet they are on, or
+// starts where readChanges() does. Cells the sheet does not reach leave them on the sheet.
 async function goTo(anchor) {
+  const [id, cell] = anchor.split('!');
   if (!sheet) {
-    sent = anchor;
+    sent = id;
     await load();
     sent = undefined;
     // Not read, as when Google could not be reached: the sheet may well still be there.
     if (!loaded) return true;
   } else {
-    const listed = info.sheets.pending.find(found => String(found.id) === anchor && found.rowCount);
+    const listed = info.sheets.pending.find(found => String(found.id) === id && found.rowCount);
     if (listed && listed.id !== sheet.id) await open(listed);
   }
-  return String(sheet?.id) === anchor;
+  if (String(sheet?.id) !== id) return false;
+  const { r0, c0 } = /^[A-Z]+[1-9]\d*(:[A-Z]+[1-9]\d*)?$/.test(cell) ? rectOf(cell) : {};
+  if (shown && r0 < axes.rows.count && c0 < axes.columns.count) {
+    pick(cell);
+    // The window read around where this lands rings it (follow()).
+    scrollToCell({ r0, c0 });
+  }
+  return true;
 }
 
 export default {

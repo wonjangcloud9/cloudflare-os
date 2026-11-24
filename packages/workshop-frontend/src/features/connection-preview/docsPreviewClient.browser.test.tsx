@@ -961,7 +961,7 @@ it('tells its host the heading the reader is under, and goes to one its host nam
     [{ text: name, look: HEADING, at: 2 }], { style: 'HEADING_1', look: HEADING, headingId })
   const headings = drawing([heading('Intro', 'h.intro'), heading('Middle', 'h.middle'), heading('Last', 'h.last')])
   // Its host sends it to the heading the reader left, which it opens on, not on its first change.
-  const { page, said, go } = await draw(
+  const { page, blocks, said, go } = await draw(
     { savedMarkdown, markdown: savedMarkdown.replace('Old text', 'New text'), drawing: headings }, {}, '?tab=t.0#heading=h.middle')
   const top = (level: number) => Math.round(page.querySelectorAll('[aria-level="1"]')[level].getBoundingClientRect().top)
   const middle = { anchor: '?tab=t.0#heading=h.middle', label: 'Middle' }
@@ -986,6 +986,11 @@ it('tells its host the heading the reader is under, and goes to one its host nam
   await expect.poll(() => said.at(-1)).toBeNull()
   expect(await go('?tab=t.0#heading=h.intro')).toBe(true)
   expect(said.at(-1)).toEqual({ anchor: '?tab=t.0#heading=h.intro', label: 'Intro' })
+  // A block the reader clicks is told by the heading it is under and by its text: a document
+  // names nothing finer than its headings.
+  blocks().find(block => text(block).includes('New text'))!.click()
+  expect(said.at(-1)).toEqual(
+    { anchor: '?tab=t.0#heading=h.intro', label: 'Intro › “New text”', context: 'New text' })
 
   // A heading or a tab that is not there leaves the reader where they are.
   expect([await go('?tab=t.0#heading=h.gone'), await go('?tab=t.9'), await go('nowhere')]).toEqual([false, false, false])

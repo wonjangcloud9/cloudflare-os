@@ -301,7 +301,8 @@ gatekeeper):
 - What a preview reports is also what the agent is told the user was looking at
   (`<user-focus>`), under the connection's title alone. Say in the session's JSDoc what an
   anchor is made of, start an item's label with the item's name, and give the text the user has
-  selected as the spot's `context`.
+  selected as the spot's `context`. Where the session names something finer than the place (a
+  cell, an element), let the user pick it and put its name in the anchor.
 - The anchor may come from any client, so it only chooses what to draw: resolve it through the
   session, which checks access as any open does. Open the item by the methods a gadget bound to
   the connection would use (the Drive preview walks `openFolder()` to `openGoogleDoc()`), not by

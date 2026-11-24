@@ -36,6 +36,17 @@ styleSheet.textContent = `
     from, 35% { outline: 2px solid var(--glow, var(--link)); outline-offset: 3px; }
     to { outline: 2px solid transparent; outline-offset: 3px; }
   }
+  /* What the reader picked with a click, which is positioned: a dashed frame a little clear of it
+     and faintly tinted, with the pale edge and the band a change's ring has. It lies over what it
+     frames, which keeps its own look, and fades in as one. On paper, which is light in either
+     theme. --hair is a pixel on screen, for what is drawn at a scale. */
+  .chosen::after { content: ''; position: absolute; inset: calc(-5 * var(--hair, 1px)); z-index: 1;
+    border: calc(1.5 * var(--hair, 1px)) dashed; border-radius: calc(6 * var(--hair, 1px));
+    background: color-mix(in srgb, currentColor 5%, transparent); color: #1a73e8; pointer-events: none;
+    box-shadow: 0 0 0 var(--hair, 1px) rgb(255 255 255 / .75),
+      0 0 0 calc(4 * var(--hair, 1px)) color-mix(in srgb, currentColor 16%, transparent);
+    animation: choose .2s ease-out; }
+  @keyframes choose { from { opacity: 0; } }
   .ghost, .wait { background: linear-gradient(90deg, var(--chip) 25%, var(--shine) 50%, var(--chip) 75%) 0 0 / 200% 100%;
     animation: shimmer 1.4s linear infinite; }
   .ghost { height: 12px; margin: 14px 0 !important; min-height: 0 !important; border-radius: 6px; }
@@ -574,23 +585,30 @@ const SELECTION_SETTLE_MS = 200;
 /** `label` cut to what a host takes. */
 export const fitLabel = label => label.length > LONGEST_LABEL ? `${label.slice(0, LONGEST_LABEL - 1)}…` : label;
 
+/** The start of `text`, as short as a label has room for. */
+export function opening(text) {
+  const line = text.replace(/\s+/g, ' ').trim();
+  return `“${line.length > 40 ? `${line.slice(0, 39)}…` : line}”`;
+}
+
 /**
- * Tells the frame's `host` where the reader is and what they have selected there
- * (GadgetHost.reportFocus()), so that the preview can be sent back there and the agent told what
- * "this" is. `spot()` gives the place as `{ anchor, label }`, with no label where it is nowhere
- * more particular than the resource, which is said only with text selected, and nothing where
- * there is no place yet. Returns what to call when the place may have moved: the host hears only
- * of what has changed.
+ * Tells the frame's `host` where the reader is and what is there (GadgetHost.reportFocus()), so
+ * that the preview can be sent back there and the agent told what "this" is. `spot()` gives the
+ * place as `{ anchor, label, context }`: with no label where it is nowhere more particular than
+ * the resource, which is said only with text selected, and nothing where there is no place yet.
+ * The text selected is told in place of the spot's own `context`. Returns what to call when the
+ * place may have moved: the host hears only of what has changed.
  */
 export function reportSpot(host, spot) {
   // A frame that has said nothing is nowhere in particular, which is what null says.
   let said = 'null';
   const say = () => {
+    const selected = document.getSelection().toString().trim();
+    const { anchor, label = selected && 'Selected text', context = '' } = spot() ?? {};
     // Without the word joiners a document's paragraphs end in.
-    const context = document.getSelection().toString().replaceAll('\u2060', '').trim().slice(0, LONGEST_CONTEXT);
-    const { anchor, label = context && 'Selected text' } = spot() ?? {};
+    const there = (selected || context).replaceAll('\u2060', '').slice(0, LONGEST_CONTEXT);
     const focus = anchor === undefined || !label
-      ? null : { anchor, label: fitLabel(label), ...context && { context } };
+      ? null : { anchor, label: fitLabel(label), ...there && { context: there } };
     const saying = JSON.stringify(focus);
     if (saying === said) return;
     said = saying;
@@ -602,4 +620,28 @@ export function reportSpot(host, spot) {
     settling = setTimeout(say, SELECTION_SETTLE_MS);
   });
   return say;
+}
+
+/**
+ * Lets the reader pick one thing drawn on the page with a click, which says what "this" is more
+ * finely than the place. `pickable(target)` gives the node a click on `target` picks, if any. It
+ * is framed until another is picked, a click picks none, or it is scrolled out of view: the
+ * reader has then moved on. `changed()` is called when the pick changes. Returns `set(node)`,
+ * which picks as a click does, and `node()`, the one picked while it is still drawn.
+ */
+export function picking(pickable, changed) {
+  let picked;
+  const set = node => {
+    if (node === picked) return;
+    picked?.classList.remove('chosen');
+    picked = node;
+    picked?.classList.add('chosen');
+    changed();
+  };
+  page.addEventListener('click', event => set(pickable(event.target) ?? undefined));
+  addEventListener('scroll', () => {
+    const box = picked?.getBoundingClientRect();
+    if (box && (box.bottom < 0 || box.top > innerHeight)) set();
+  }, { passive: true });
+  return { set, node: () => picked?.isConnected ? picked : undefined };
 }

@@ -135,7 +135,9 @@ export type SpreadsheetFormats = {
  * `pendingCells`).
  *
  * A `<user-focus>` on this spreadsheet says which worksheet the user was viewing: its `anchor` is
- * the worksheet's `id`, and its body the text of the cells they had selected.
+ * the worksheet's `id`, then `!` and the cell or range they had picked, such as `B7` or `B7:D9`.
+ * Its body is what those cells hold, a range's as lines of tab-separated cells, or the text
+ * they had selected.
  */
 export interface GoogleSpreadsheetReadSession {
   /** Return spreadsheet metadata and its worksheet list. */

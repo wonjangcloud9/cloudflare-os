@@ -307,6 +307,17 @@ same `host`, so it does the same, and the pane keeps what it says:
 - **The spots**: Google Docs, the tab and the heading the view has passed, as `?tab=<id>` and
   `?tab=<id>#heading=<id>`, the form the document's own links have; Google Sheets, the sheet's
   ID; Google Slides, the slide's ID.
+- **What the reader picks is a finer spot**, wherever the agent can name it: a click on a slide's
+  element gives `<slide>#<element>`, and the cell picked in a sheet `<sheet>!<A1>`, each with what
+  is in it as the spot's `context`. A press across cells, or a click with Shift held, picks the
+  range between them, `<sheet>!<A1>:<B2>`, whose `context` is the cells drawn of it as lines of
+  tab-separated text. A preview sent to one picks it again. A document names nothing finer than
+  its headings, so a block clicked there is told by the heading it is under and by its text,
+  which is what an edit matches on; it is not picked again. `picking()` in `chrome.js` marks the
+  pick for Docs and Slides, which is framed with a dashed line in the shape of a change's ring,
+  drawn over it so that it keeps its own look, and lets it go once it is scrolled out of view,
+  so that a preview is not sent back to a place its reader left; Sheets had its cell already,
+  ringed as Google Sheets rings one.
 - **An item's spot starts with the item**: `<previewOf.id> <spot>`. The Drive entry is sent the
   file's name, opens it, and starts the file's preview with a host of its own making, which puts
   the name before each spot that preview reports and takes it off each it is sent to. It labels
@@ -882,9 +893,9 @@ differs is which file, which section 1a answers:
   gatekeeper naming the type of session the file is opened as, as `describe().tsType` does for
   a connection. Such a gadget is bound to the folder's connection, so it also opens the file
   itself, as the Drive entry does, by methods its types have.
-- **More to select than text.** A spot's `context` is the text selected. A picked cell or range
-  by its A1 name, or a slide's element by its ID, would tell the agent more, and needs a way to
-  pick one in a preview that only reads.
+- **More to pick.** A cell of a table on a slide or in a document, and an image inside a
+  paragraph, are each told as the table or the paragraph they are in. Whole rows and columns
+  of a sheet are not picked from its headings.
 - **An item's own title on a chip opened later.** A message's focus keeps the connection's
   title. Opening the chip of a file with no change waiting draws the file under that title; the
   item's own would need the gatekeeper to describe an item by its ID.

@@ -842,6 +842,29 @@ it('tells its host the sheet shown, opens on the one its host names, and on its 
   expect(await go('1')).toBe(true)
   expect([title(), cell('A1').textContent]).toEqual(['Sales', 'Sales A1'])
   expect(said.at(-1)).toEqual({ anchor: '1', label: 'Sales' })
+  // A cell the reader picks is told after its sheet, as the session names one, with what is in
+  // it, and its host sends it back to one.
+  cell('B2').click()
+  expect(said.at(-1)).toEqual({ anchor: '1!B2', label: 'Sales › B2' })
+  expect(await go('1!A1')).toBe(true)
+  expect(said.at(-1)).toEqual({ anchor: '1!A1', label: 'Sales › A1', context: 'Sales A1' })
+  expect(cell('A1').matches('.picked')).toBe(true)
+  // A press let go on another cell picks the range between them, whichever corner it began at,
+  // and so does a click with Shift held. Its host sends it back to a range too.
+  const range = { anchor: '1!A1:B2', label: 'Sales › A1:B2', context: 'Sales A1' }
+  cell('B2').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+  cell('A1').dispatchEvent(new PointerEvent('pointerup', { bubbles: true }))
+  expect(said.at(-1)).toEqual(range)
+  expect(['A1', 'B1', 'B2', 'C2'].map(name => ['.picked', '.ranged'].map(lit => cell(name).matches(lit))))
+    .toEqual([[true, true], [false, true], [false, true], [false, false]])
+  cell('C2').click()
+  expect(said.at(-1)).toEqual({ anchor: '1!C2', label: 'Sales › C2' })
+  cell('A1').dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }))
+  expect(said.at(-1)).toEqual({ anchor: '1!A1:C2', label: 'Sales › A1:C2', context: 'Sales A1' })
+  cell('B2').click()
+  expect(await go('1!A1:B2')).toBe(true)
+  expect(said.at(-1)).toEqual(range)
+  expect(doc.querySelectorAll('.ranged').length).toBe(4)
   // The reader's own move is told too.
   tabs()[2].click()
   await expect.poll(() => said.at(-1)).toEqual({ anchor: '9', label: 'Plan' })

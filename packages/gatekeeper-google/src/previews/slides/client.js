@@ -10,9 +10,9 @@
 // saved: text of a pending change is not yet approved.
 
 import {
-  dataUrl, flash, fontReader, leaveOutline, lineIcon, loadOnRefresh, make, motion, outline, outlineList, page,
-  partNavigator, press, reportSpot, segmented, setOutline, setStops, showError, showLoading, showPage, showStale,
-  status, SYSTEM_FONT,
+  dataUrl, flash, fontReader, leaveOutline, lineIcon, loadOnRefresh, make, motion, opening, outline, outlineList,
+  page, partNavigator, picking, press, reportSpot, segmented, setOutline, setStops, showError, showLoading,
+  showPage, showStale, status, SYSTEM_FONT,
 } from './ui/chrome.js';
 import { boxOf, drawSlide, slideStyles, LINE_HEIGHT } from './slide.js';
 
@@ -20,6 +20,11 @@ import { boxOf, drawSlide, slideStyles, LINE_HEIGHT } from './slide.js';
 let gadget;
 // Tells the host where the reader is, once main() has one to tell.
 let saySpot = () => {};
+// The element the reader picked on a slide, and the one the host sent this to on a slide not yet
+// drawn, as `{ slide, id }`.
+let picker = { node: () => undefined };
+let sent;
+const drawnAs = id => `[data-id="${CSS.escape(id)}"]`;
 
 // How many slides are drawn, the rest being listed by title, and how many are read at once.
 const MAX_DRAWN = 50;
@@ -513,6 +518,9 @@ function paint(card, over) {
   const stage = drawSlide(slide, size, slide === before || !card.differs, card.pending);
   const small = drawSlide(after ?? before, size, false, card.pending);
   card.stages = [[stage, slide], [small, after ?? before]];
+  // The element picked on the drawing this replaces, or the one the host sent this to.
+  const held = picker.node();
+  const again = sent?.slide === card.id ? sent.id : card.sheet.contains(held) ? held.dataset.id : undefined;
   if (card.sheet.classList.contains('wait')) stage.classList.add('first');
   card.sheet.classList.remove('wait');
   card.mini.classList.remove('wait');
@@ -524,6 +532,7 @@ function paint(card, over) {
   } else {
     card.sheet.replaceChildren(stage);
   }
+  if (again !== undefined) picker.set(stage.querySelector(drawnAs(again)) ?? undefined);
   card.mini.replaceChildren(small, ...card.mini.querySelectorAll('.tags'));
   for (const spot of card.spots) {
     const frame = spot.gone ? spot.before : spot[card.view];
@@ -887,25 +896,44 @@ async function load() {
 // ---------------------------------------------------------------------------------------------
 // Where the reader is
 
+// What an element with no text is called.
+const NOUNS = { shape: 'Shape', line: 'Line', table: 'Table', image: 'Image', video: 'Video', chart: 'Chart' };
+
 // The slide the view is on, by its ID: its number moves with the deck. One of several is labelled.
+// An element picked is named after its slide, by its own ID, with its text as what is there.
 function here() {
-  const row = loaded ? rows[viewed] : undefined;
+  const node = picker.node();
+  const on = node ? rows.findIndex(row => row.id === node.closest('[data-slide]').dataset.slide) : viewed;
+  const row = loaded ? rows[on] : undefined;
   if (!row) return undefined;
-  if (rows.length < 2) return { anchor: row.id };
-  const number = rows.slice(0, viewed + 1).filter(kept => kept.slide).length;
-  return { anchor: row.id, label: row.slide ? `Slide ${number}` : `Deleted slide: ${row.title}` };
+  const number = rows.slice(0, on + 1).filter(kept => kept.slide).length;
+  const label = row.slide ? `Slide ${number}` : `Deleted slide: ${row.title}`;
+  if (!node) return { anchor: row.id, label: rows.length > 1 ? label : undefined };
+  const element = cards.get(row.id).stages[0][1].elements.find(found => found.id === node.dataset.id);
+  const context = node.innerText?.trim();
+  return {
+    anchor: `${row.id}#${node.dataset.id}`,
+    label: `${label} › ${context ? opening(context) : NOUNS[element?.of ?? element?.kind] ?? 'Element'}`,
+    context,
+  };
 }
 
-// Shows the slide `anchor` names (GadgetHost.onNavigate()). It is one here() gave, but may come
-// from anywhere, so it only chooses what to show. False for a slide no longer there.
+// Shows the slide `anchor` names, and picks the element named after it (GadgetHost.onNavigate()).
+// It is one here() gave, but may come from anywhere, so it only chooses what to show. False for a
+// slide no longer there. An element no longer there leaves the reader on its slide.
 async function goTo(anchor) {
   if (!loaded) await load();
   // Not read, as when Google could not be reached: the slide may well still be there.
   if (!loaded) return true;
-  const card = rows.some(row => row.id === anchor) && cards.get(anchor);
+  const [slide, id] = anchor.split('#');
+  const card = rows.some(row => row.id === slide) && cards.get(slide);
   if (!card) return false;
   card.node.scrollIntoView({ block: 'start' });
   markSlide();
+  const stage = card.stages[0]?.[0];
+  // A slide not drawn yet has its element picked as it is (paint()).
+  if (!stage) sent = id === undefined ? undefined : { slide, id };
+  else picker.set(id === undefined ? undefined : stage.querySelector(drawnAs(id)) ?? undefined);
   return true;
 }
 
@@ -917,6 +945,11 @@ export default {
     document.head.append(slideStyles, styleSheet);
     pager = partNavigator('slide');
     saySpot = reportSpot(host, here);
+    // Any element of a slide as it is drawn large: a click on the slide itself picks none.
+    picker = picking(target => target.closest('.sheet [data-id]'), () => {
+      sent = undefined;
+      saySpot();
+    });
     addEventListener('scroll', () => requestAnimationFrame(markSlide), { passive: true });
     outline.addEventListener('outlinechange', markSlide);
     // The slides are drawn after they are laid out, which moves those under them.

@@ -12,9 +12,9 @@
 // or a heading, and out to the web, in a new browser tab, from text Google Docs has saved.
 
 import {
-  addControl, dataUrl, flash, foldArrow, fontReader, ghostLines, leaveOutline, lineIcon, loadOnRefresh, make, motion,
-  outline, outlineList, page, partNavigator, press, reportSpot, segmented, setOutline, setStops, showError, showPage,
-  showStale, status, touch, ITSELF,
+  addControl, dataUrl, flash, foldArrow, fontReader, ghostLines, leaveOutline, lineIcon, loadOnRefresh, make,
+  motion, opening, outline, outlineList, page, partNavigator, picking, press, reportSpot, segmented, setOutline, setStops,
+  showError, showPage, showStale, status, touch, ITSELF,
 } from './ui/chrome.js';
 import { drawer, drawStyles, faceMeasures, headingLevel, newList, showPicture } from './draw.js';
 import { pageStyles, paginate } from './pages.js';
@@ -24,6 +24,9 @@ import { BOLD, ITALIC, STRIKE, blockKey, diff, pairEdits, parseBlocks, tablesOf,
 let gadget;
 // Tells the host where the reader is, once main() has one to tell.
 let saySpot = () => {};
+// The block the reader picked. A document names its headings and nothing finer, so a block is
+// told by the heading it is under and by its text.
+let picker = { node: () => undefined };
 
 // How far under the head of the frame a page stepped to stops.
 const HEAD = 52;
@@ -49,6 +52,9 @@ styleSheet.textContent = `
      The document's own colors stay, except where every change is read in place. */
   :is(.added, .changed) { --glow: var(--mark-ink); }
   .removed { --glow: var(--gone-ink); }
+  /* The block picked is framed round its text, clear of the space above and below it. */
+  .col > .chosen { position: relative; }
+  .col > .chosen::after { top: calc(var(--above, 0px) - 5px); bottom: calc(var(--below, 0px) - 5px); }
   /* A mark has no box to ring: it glows itself. */
   .omit { outline: none !important; }
   :is(.added, .removed, .changed)::before { content: ''; position: absolute; width: 2.5pt;
@@ -584,7 +590,7 @@ const folded = new Set();
 const fold = (key, label) => foldArrow(key, label, folded, renderOutline);
 let reading = -1;
 
-// What a heading says, without what is drawn beside its text or is being removed from it.
+// What a heading, or any block, says, without what is drawn beside its text or is being removed from it.
 function headingText(heading) {
   const copy = heading.cloneNode(true);
   for (const gone of copy.querySelectorAll(view === 'inline' ? 'del, .marker, .tick, .obj' : '.marker, .tick, .obj')) gone.remove();
@@ -762,8 +768,8 @@ async function followLink(event) {
 // How far under the top of the view a heading is passed.
 const PASSED = 96;
 
-// The tab shown and the heading the view has passed: an address of the form the document's own
-// links to its tabs and headings have.
+// The tab shown and the heading the view has passed, or the one the block picked is under: an
+// address of the form the document's own links to its tabs and headings have.
 function here() {
   const listed = loaded && tabs.find(found => found.id === tabId);
   if (!listed) return undefined;
@@ -771,12 +777,17 @@ function here() {
   // near the end scrolls no higher.
   const { scrollTop, clientHeight, scrollHeight } = document.scrollingElement;
   const ended = scrollTop > 0 && scrollTop + clientHeight >= scrollHeight - 1;
-  const heading = headings.findLast(found => found.dataset.heading &&
-    (ended || found.getBoundingClientRect().top <= PASSED));
+  const block = picker.node();
+  const heading = headings.findLast(found => found.dataset.heading && (block
+    ? !(block.compareDocumentPosition(found) & Node.DOCUMENT_POSITION_FOLLOWING)
+    : ended || found.getBoundingClientRect().top <= PASSED));
+  const context = block && headingText(block);
   return {
     anchor: `?tab=${encodeURIComponent(tabId)}${heading ? `#heading=${encodeURIComponent(heading.dataset.heading)}` : ''}`,
     // None at the top of a document of one tab: nowhere more particular than the document.
-    label: [tabs.length > 1 && listed.title, heading && headingText(heading)].filter(Boolean).join(' › ') || undefined,
+    label: [tabs.length > 1 && listed.title, heading && headingText(heading),
+      block && block !== heading && (context ? opening(context) : 'Image')].filter(Boolean).join(' › ') || undefined,
+    context,
   };
 }
 
@@ -921,6 +932,11 @@ export default {
     new ResizeObserver(fit).observe(page);
     addControl(views);
     saySpot = reportSpot(host, here);
+    // A block with something in it: its text, or a picture.
+    picker = picking(target => {
+      const block = target.closest('.col > *');
+      return block && (headingText(block) || block.querySelector('.obj')) ? block : undefined;
+    }, () => saySpot());
     addEventListener('scroll', () => requestAnimationFrame(() => {
       markHeading();
       markPage();

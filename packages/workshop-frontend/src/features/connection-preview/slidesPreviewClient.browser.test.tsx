@@ -848,9 +848,10 @@ it('says so when a presentation has no slides, and offers to try again when it c
 
 it('tells its host the slide the reader is on, and goes to one its host names', async () => {
   // Its host sends it to the slide the reader left, which it opens on, not on its first change.
-  const { all, said, go } = await draw({
+  const { all, card, said, go } = await draw({
     saved: listed('One', 'Two', 'Three', 'Four', 'Five', 'Six'),
-    changes: [edit(1, 's1', 's1-title')], drawings: { s1: retitled('s1') },
+    changes: [edit(1, 's1', 's1-title')],
+    drawings: { s1: retitled('s1'), s2: { drawing: slide([box('s2-title', 20, 20, 's2'), box('s2-blank', 300, 200)]) } },
   }, 1100, 700, 's3')
   const top = (slide: number) => Math.round(all('.card')[slide].getBoundingClientRect().top)
   const third = { anchor: 's3', label: 'Slide 3' }
@@ -861,7 +862,24 @@ it('tells its host the slide the reader is on, and goes to one its host names', 
   expect([said.at(-1), top(2) < 700 / 3]).toEqual([third, true])
 
   expect(await go('s2')).toBe(true)
-  expect(said.at(-1)).toEqual({ anchor: 's2', label: 'Slide 2' })
+  const second = { anchor: 's2', label: 'Slide 2' }
+  expect(said.at(-1)).toEqual(second)
+  // An element the reader clicks is told after its slide, by its ID and its text, and is ringed
+  // until a click on the slide itself lets it go.
+  const title = { anchor: 's2#s2-title', label: 'Slide 2 › “s2”', context: 's2' }
+  const drawn = () => card('s2').querySelector<HTMLElement>('.sheet [data-id="s2-title"]')!
+  drawn().click()
+  expect([said.at(-1), drawn().matches('.chosen')]).toEqual([title, true])
+  // One with no text is told by what it is.
+  card('s2').querySelector<HTMLElement>('.sheet [data-id="s2-blank"]')!.click()
+  expect([said.at(-1), drawn().matches('.chosen')]).toEqual([{ anchor: 's2#s2-blank', label: 'Slide 2 › Shape' }, false])
+  card('s2').querySelector<HTMLElement>('.sheet .stage')!.click()
+  expect(said.at(-1)).toEqual(second)
+  // Its host sends it back to the element, and to the slide of one that is gone.
+  expect(await go('s2#s2-title')).toBe(true)
+  expect(said.at(-1)).toEqual(title)
+  expect(await go('s2#gone')).toBe(true)
+  expect(said.at(-1)).toEqual(second)
   // The reader's own move is told too.
   frame!.contentWindow!.scrollTo(0, 0)
   await expect.poll(() => said.at(-1)).toEqual({ anchor: 's1', label: 'Slide 1' })

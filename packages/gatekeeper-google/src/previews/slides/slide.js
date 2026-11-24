@@ -33,6 +33,9 @@ styleSheet.textContent = `
   .stage img { position: absolute; display: block; max-width: none; }
   .el { position: absolute; }
   .el > svg, .stage > svg { position: absolute; top: 0; left: 0; overflow: visible; }
+  /* The frame of what is picked, as wide on screen at any scale. A line has no box to frame. */
+  .stage .chosen { --hair: calc(1px / var(--k, 1)); }
+  .stage > svg.chosen { filter: drop-shadow(0 0 var(--hair) #1a73e8) drop-shadow(0 0 calc(4 * var(--hair)) #1a73e8); }
   .words { position: absolute; inset: 0; display: flex; flex-direction: column; padding: ${INSET}px; }
   .words.middle { justify-content: center; }
   .words.bottom { justify-content: flex-end; }
