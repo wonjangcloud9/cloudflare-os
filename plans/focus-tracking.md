@@ -278,10 +278,13 @@ focus?: MessageFocus;
 focus?: MessageFocus & { gadgetTitle: string };
 ```
 
-- The backend checks that `gadgetId` names a gadget in the workspace and that the strings are
-  within the limits, and rejects the message otherwise. As with a capsule, a worktree, a
-  gatekeeper, or a gadget still pending in another chat's proposal is not a gadget in the
-  workspace. The check and the title stamp cover a steer too, at the moment it is queued.
+- The backend checks that `gadgetId` names a gadget or a connection in the workspace and that the
+  strings are within the limits, and rejects the message otherwise. As with a capsule, a worktree
+  or a gadget still pending in another chat's proposal is not a gadget in the workspace. A
+  connection is named because its own UI is drawn in a gadget's place (a preview, see
+  `plans/gatekeeper-preview-uis.md`), and is titled by its resource. The backend does not record
+  which connections have a UI, so it takes a focus on any of them: a focus grants nothing. The
+  check and the title stamp cover a steer too, at the moment it is queued.
 - A focus grants nothing. It does not add the gadget to the chat's env.
 - A slash-command request carries no focus, as it carries no capsules.
 
@@ -477,7 +480,7 @@ the server, and "fix this" costs a tool round trip before the agent knows what "
 
 - **Legacy UIs** have no `host`, so they never report a spot. They still get the gadget-level
   focus. That includes the bundled Docs, Sheets and Slides.
-- **Worktrees and the activity pane.** Only a gadget is a focus. With a worktree selected, or the
+- **Worktrees and the activity pane.** Only a gadget, or a connection's preview, is a focus. With a worktree selected, or the
   pane showing activity, there is no chip. On a single-pane layout the same holds for the Chat tab
   when the pane last showed one of those.
 - **A phone's Chat tab.** On a single-pane layout the composer and the pane are never on screen
