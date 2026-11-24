@@ -12,7 +12,8 @@ type GadgetSpot = { gadgetId: WorkpieceId; spot: GadgetFocus }
 export type PaneView = 'workpiece' | 'activity' | null
 
 /**
- * Keeps the spot the selected gadget's frame last reported, for the composer's focus chip.
+ * Keeps the spot the selected gadget's frame last reported, for the composer's focus chip. A
+ * connection's preview is drawn in a gadget's place, and is one here: `gadget` is its connection.
  * Returns the `GadgetUI` focus to give that frame, wrapping `uiFocus` (from `useFocusUrl`), and
  * the focus the pane offers a message: the gadget whenever the pane is showing it, with the spot
  * once the current frame has reported one, or once a sent message's chip has sent it there.
@@ -23,7 +24,7 @@ export type PaneView = 'workpiece' | 'activity' | null
 export const usePaneFocus = ({ uiFocus, gadget, pane, singlePane }: {
   uiFocus: GadgetUIFocus | undefined
   /** The selected workpiece, when it is a gadget. */
-  gadget: GadgetSummary | undefined
+  gadget: Pick<GadgetSummary, 'id' | 'title' | 'chatId'> | undefined
   pane: PaneView
   /**
    * Whether the chat and the pane take turns on screen. Closing the pane is then only switching to
